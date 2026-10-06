@@ -72,6 +72,7 @@ async function start() {
   handle('profile:screenshots', id => launcher.screenshots(id));
   handle('profile:servers', (id, servers) => launcher.servers(id, servers));
   handle('launch', id => launcher.launch(id, accounts.list().selected));
+  handle('server:launch', (id, address) => launcher.launchServer(id, accounts.list().selected, address));
   const idle = () => { if (launcher.busy || launcher.child) throw new Error('Wait for the installation or game to finish before changing accounts.'); };
   const notifyAccounts = () => { if (window && !window.isDestroyed()) window.webContents.send('launcher:accounts-changed', accounts.list()); };
   handle('accounts:list', () => accounts.list());

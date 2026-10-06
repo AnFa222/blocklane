@@ -325,6 +325,11 @@ class Launcher {
     if (!Array.isArray(next) || next.length > 50 || next.some(server => !server || typeof server.name !== 'string' || typeof server.address !== 'string' || server.name.length > 50 || server.address.length > 255)) throw new Error('Invalid saved servers.');
     profile.servers = next.map(server => ({ name: server.name.trim(), address: server.address.trim() })).filter(server => server.name && server.address); await this.persist(); return profile.servers;
   }
+  async launchServer(profileId, accountId, address) {
+    const value = String(address || '').trim(); if (!value || value.length > 255 || /\s/.test(value)) throw new Error('Enter a valid server address.');
+    let host = value, port = null; const match = value.match(/^(.+):(\d{1,5})$/); if (match) { host = match[1]; port = Number(match[2]); if (port < 1 || port > 65535) throw new Error('Server port must be between 1 and 65535.'); }
+    return this.launch(profileId, accountId, ['--server', host, ...(port ? ['--port', String(port)] : [])]);
+  }
   progress(message, done = 0, total = 1) { this.emit('progress', { message, done, total }); }
   cancel() { this.controller?.abort(new Error('Installation cancelled. Downloaded files are kept for retry.')); }
   loaderIO() { return { allowed, trustedUrl, validId, safePath, readJson, atomicJson, hashFile, download, remoteJson, remoteText }; }
@@ -462,7 +467,7 @@ class Launcher {
     await fs.rm(safePath(path.join(this.root, 'versions'), id), { recursive: true, force: true });
     return this.snapshot();
   }
-  async launch(profileId, accountId = 'demo') {
+  async launch(profileId, accountId = 'demo', launchGameArgs = null) {
     if (this.busy || this.child) throw new Error('A game or installation is already running.');
     const p = this.state.profiles.find(p => p.id === profileId);
     if (!p) throw new Error('Create or select a profile first.');
@@ -503,7 +508,7 @@ class Launcher {
       if (meta.logging?.client) jvm.push(meta.logging.client.argument.replace('${path}', safePath(path.join(this.root, 'assets', 'log_configs'), meta.logging.client.file.id)));
       const game = expandArgs(meta.arguments.game, values, features);
       if (identity.demo && !game.includes('--demo')) game.push('--demo');
-      const args = [...jvmMemoryArgs(p.memory), ...(p.javaArgs || []), ...jvm, meta.mainClass, ...game, ...(p.gameArgs || [])];
+      const args = [...jvmMemoryArgs(p.memory), ...(p.javaArgs || []), ...jvm, meta.mainClass, ...game, ...(launchGameArgs || p.gameArgs || [])];
       const logDir = path.join(this.root, 'logs');
       await fs.mkdir(logDir, { recursive: true });
       const log = createWriteStream(path.join(logDir, 'latest-launch.log'));
