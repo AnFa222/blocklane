@@ -291,6 +291,27 @@ class Launcher {
     if (this.state.selectedProfile === id) this.state.selectedProfile = this.state.profiles[0]?.id || null;
     return this.persist();
   }
+  profile(id) { const profile = this.state.profiles.find(item => item.id === id); if (!profile) throw new Error('Profile does not exist.'); return profile; }
+  async cloneProfile(id, name) {
+    if (this.child || this.busy) throw new Error('Wait for the current operation to finish.');
+    const source = this.profile(id), copy = { ...source, id: crypto.randomUUID(), name: String(name || `${source.name} copy`).trim(), servers: [...(source.servers || [])] };
+    if (!copy.name || copy.name.length > 50) throw new Error('Use a profile name between 1 and 50 characters.');
+    const from = path.join(this.root, 'instances', source.id), to = path.join(this.root, 'instances', copy.id);
+    await fs.cp(from, to, { recursive: true, force: false, errorOnExist: true }).catch(error => { if (error.code !== 'ENOENT') throw error; });
+    this.state.profiles.push(copy); this.state.selectedProfile = copy.id; return this.persist();
+  }
+  async backupProfile(id) {
+    if (this.child || this.busy) throw new Error('Wait for the current operation to finish.');
+    const profile = this.profile(id), source = path.join(this.root, 'instances', profile.id, 'saves');
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-'); const destination = path.join(this.root, 'backups', profile.id, stamp, 'saves');
+    await fs.cp(source, destination, { recursive: true, force: false, errorOnExist: true }).catch(error => { if (error.code === 'ENOENT') throw new Error('This profile has no worlds to back up yet.'); throw error; });
+    return { profileId: profile.id, path: destination, createdAt: stamp };
+  }
+  async servers(id, next) {
+    const profile = this.profile(id); if (next === undefined) return profile.servers || [];
+    if (!Array.isArray(next) || next.length > 50 || next.some(server => !server || typeof server.name !== 'string' || typeof server.address !== 'string' || server.name.length > 50 || server.address.length > 255)) throw new Error('Invalid saved servers.');
+    profile.servers = next.map(server => ({ name: server.name.trim(), address: server.address.trim() })).filter(server => server.name && server.address); await this.persist(); return profile.servers;
+  }
   progress(message, done = 0, total = 1) { this.emit('progress', { message, done, total }); }
   cancel() { this.controller?.abort(new Error('Installation cancelled. Downloaded files are kept for retry.')); }
   loaderIO() { return { allowed, trustedUrl, validId, safePath, readJson, atomicJson, hashFile, download, remoteJson, remoteText }; }

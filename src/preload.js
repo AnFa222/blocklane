@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('launcher', {
   enableShader: (profileId, projectId, enabled) => invoke('shaders:enable', profileId, projectId, enabled), removeShader: (profileId, projectId) => invoke('shaders:remove', profileId, projectId),
   searchResourcepacks: (profileId, query, offset = 0) => invoke('resourcepacks:search', profileId, query, offset), listResourcepacks: profileId => invoke('resourcepacks:list', profileId), installResourcepack: (profileId, projectId) => invoke('resourcepacks:install', profileId, projectId), enableResourcepack: (profileId, projectId, enabled) => invoke('resourcepacks:enable', profileId, projectId, enabled), removeResourcepack: (profileId, projectId) => invoke('resourcepacks:remove', profileId, projectId),
   saveProfile: p => invoke('profile:save', p), selectProfile: id => invoke('profile:select', id), deleteProfile: id => invoke('profile:delete', id),
+  cloneProfile: (id, name) => invoke('profile:clone', id, name), backupProfile: id => invoke('profile:backup', id), profileServers: (id, servers) => invoke('profile:servers', id, servers), openScreenshots: id => invoke('folder:screenshots', id), openCrashes: id => invoke('folder:crashes', id),
   removeVersion: id => invoke('version:remove', id), launch: id => invoke('launch', id),
   accounts: () => invoke('accounts:list'),
   selectAccount: id => invoke('accounts:select', id), removeAccount: id => invoke('accounts:remove', id),

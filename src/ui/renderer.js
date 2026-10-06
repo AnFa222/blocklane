@@ -181,7 +181,7 @@ function renderProfiles() {
     top.append(el('span', 'stat-icon', '▤'), el('small', '', selected ? 'ACTIVE PROFILE' : loaderNames[p.loader || 'vanilla'].toUpperCase()));
     card.append(top, el('h3', '', p.name), el('p', '', `${profileLabel(p)} · ${p.memory} GB RAM`), el('small', '', profileInstalled(p) ? '● Profile installed' : 'Profile needs installation'));
     const actions = el('div', 'profile-card-actions');
-    actions.append(button(selected ? 'Selected' : 'Select profile', selected ? 'quiet' : 'primary', async () => { state = await api.selectProfile(p.id); render(); }), button('Edit', 'quiet', () => openProfile(p)), button('Delete profile', 'quiet', () => confirmDeleteProfile(p)));
+    actions.append(button(selected ? 'Selected' : 'Select profile', selected ? 'quiet' : 'primary', async () => { state = await api.selectProfile(p.id); render(); }), button('Edit', 'quiet', () => openProfile(p)), button('Clone', 'quiet', async () => { state = await api.cloneProfile(p.id, `${p.name} copy`); render(); toast('Profile cloned with its worlds and settings.'); }), button('Backup worlds', 'quiet', async () => { await api.backupProfile(p.id); toast('World backup created.'); }), button('Screenshots', 'quiet', () => api.openScreenshots(p.id)), button('Crash reports', 'quiet', () => api.openCrashes(p.id)), button('Delete profile', 'quiet', () => confirmDeleteProfile(p)));
     if ((p.loader || 'vanilla') !== 'vanilla') actions.append(button('Install / repair', 'quiet', () => installSelectedProfile(p)), button('Mods folder', 'quiet', () => api.openMods(p.id)));
     if (busy || running) actions.querySelectorAll('button').forEach(b => b.disabled = true);
     card.append(actions); grid.append(card);
