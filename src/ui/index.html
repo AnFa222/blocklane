@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Blocklane · Minecraft Launcher</title><link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-icon">b</span><span>blocklane<span class="brand-sub">MINECRAFT LAUNCHER</span></span></div>
+    <div class="nav-label">YOUR WORKSPACE</div>
+    <nav aria-label="Main navigation">
+      <button class="nav-item active" data-view="play"><span>▷</span>Play</button>
+      <button class="nav-item" data-view="versions"><span>▦</span>Versions<span class="count" id="nav-installed">0</span></button>
+      <button class="nav-item" data-view="profiles"><span>▤</span>Profiles</button>
+      <button class="nav-item" data-view="accounts"><span>♙</span>Accounts</button>
+      <button class="nav-item" data-view="activity"><span>⌁</span>Activity</button>
+    </nav>
+    <div class="sidebar-bottom"><div class="edition"><span class="status-dot"></span> Java Edition <span class="muted">/ Windows</span></div><button class="account account-button" data-go="accounts"><div class="avatar" id="account-avatar">P</div><div><span id="sidebar-account">Demo player</span><small>Switch or add accounts</small></div></button><div class="build">BLOCKLANE <span>v0.2.1 · ALPHA</span></div></div>
+  </aside>
+  <main>
+    <header><div class="breadcrumb">Workspace <span>/</span> <strong id="page-title">Play</strong></div><button class="quiet small" id="open-folder">↗ &nbsp; Launcher folder</button></header>
+    <div class="content">
+      <section id="view-play" class="view active">
+        <div class="heading"><div class="eyebrow">A NEW WORLD AWAITS</div><h1>Make room for adventure.</h1><p>Your versions. Your worlds. One place to play.</p></div>
+        <div class="hero">
+          <div class="landscape" aria-hidden="true"><div class="sun"></div><div class="cloud cloud-one"></div><div class="cloud cloud-two"></div><div class="ridge ridge-back"></div><div class="ridge ridge-mid"></div><div class="ridge ridge-front"></div><div class="tree tree-one"></div><div class="tree tree-two"></div><div class="tree tree-three"></div><div class="land-grid"></div></div>
+          <div class="hero-top"><span class="pill light"><span class="status-dot"></span> VANILLA MINECRAFT</span><span class="hero-edition">JAVA EDITION</span></div>
+          <div class="hero-bottom"><div><div class="eyebrow">THE NEXT CHAPTER IS YOURS</div><h2>Back to the blocks.</h2><p>Start small. Build something extraordinary.</p></div><div class="hero-version"><span id="latest-version">—</span><small>LATEST RELEASE</small></div></div>
+        </div>
+        <div class="launch-panel"><div class="profile-select-wrap"><label for="active-profile">LAUNCH PROFILE</label><select id="active-profile"><option value="">Create your first profile</option></select><span id="profile-detail" class="muted">Pin a version and give your worlds a home.</span></div><div class="launch-actions"><button class="quiet" id="edit-active" title="Edit selected profile">Edit profile</button><button class="primary launch" id="play-button">＋ Create profile</button></div></div>
+        <div class="account-picker"><label for="active-account">PLAY AS</label><select id="active-account" aria-label="Play as account"><option value="demo">Demo player</option></select><button class="quiet small" data-go="accounts">Manage accounts</button></div><div class="demo-note"><span>ⓘ</span><p id="play-mode-note">Demo is selected. Choose a Microsoft account to play the full game.</p></div>
+        <div class="section-heading"><h3>Your setup, at a glance</h3><span class="muted">A little less setup. A lot more Minecraft.</span></div>
+        <div class="stats"><button class="stat" data-go="versions"><span class="stat-icon">▦</span><strong id="stat-installed">0</strong><span>Installed versions</span><i>↗</i></button><button class="stat" data-go="profiles"><span class="stat-icon">▤</span><strong id="stat-profiles">0</strong><span>Launch profiles</span><i>↗</i></button><div class="stat"><span class="stat-icon">⌘</span><strong id="stat-java">Checking…</strong><span id="java-caption">Java runtime</span></div></div>
+      </section>
+      <section id="view-versions" class="view">
+        <div class="heading heading-row"><div><div class="eyebrow">PICK YOUR ERA</div><h1>Version library</h1><p>Install, repair, and switch between official Minecraft versions.</p></div><button class="quiet" id="refresh">↻ &nbsp; Refresh</button></div>
+        <div class="filters"><input id="search" type="search" placeholder="Search versions…" aria-label="Search versions"><div class="segmented" role="group" aria-label="Version filter"><button data-filter="release" class="active">Releases</button><button data-filter="snapshot">Snapshots</button><button data-filter="installed">Installed</button></div></div>
+        <div class="catalog-note" id="catalog-note">Loading the official Mojang catalog…</div>
+        <div class="version-table"><div class="table-head"><span>VERSION</span><span>RELEASED</span><span>STATUS</span><span></span></div><div id="version-list"></div></div><button id="load-more" class="quiet more" hidden>Show more versions</button>
+      </section>
+      <section id="view-profiles" class="view">
+        <div class="heading heading-row"><div><div class="eyebrow">A PLACE FOR EVERY PLAYTHROUGH</div><h1>Your profiles</h1><p>Separate worlds and settings, pinned to the version you choose.</p></div><button class="primary" id="new-profile">＋ New profile</button></div><div id="profiles-grid" class="profiles-grid"></div>
+      </section>
+      <section id="view-accounts" class="view">
+        <div class="heading heading-row"><div><div class="eyebrow">YOUR ACCOUNTS, ONE LAUNCHER</div><h1>Who’s playing?</h1><p>Add Microsoft accounts, switch players, or jump into the demo.</p></div><button class="primary" id="add-account">Sign in with Microsoft</button></div>
+        <div class="account-notice" id="account-notice" role="status"></div>
+        <div id="accounts-grid" class="profiles-grid"></div>
+      </section>
+      <section id="view-activity" class="view">
+        <div class="heading heading-row"><div><div class="eyebrow">UNDER THE HOOD</div><h1>Activity</h1><p>Installation updates and output from your latest game session.</p></div><button id="clear-log" class="quiet">Clear view</button></div><pre id="log" aria-label="Launcher activity">Welcome to Blocklane. Ready when you are.
+</pre>
+      </section>
+    </div>
+    <footer><span><span class="status-dot" id="connection-dot"></span><span id="connection-label">Connecting to Mojang</span></span><span>Independent launcher · Not affiliated with Mojang or Microsoft</span></footer>
+  </main>
+  <div class="download-panel" id="download-panel" hidden><div class="download-top"><span class="download-icon">↓</span><div><strong id="download-title">Preparing installation</strong><small id="download-count">Checking files…</small></div><button id="cancel-install" class="quiet small">Cancel</button></div><progress id="download-progress" value="0" max="1"></progress></div>
+  <div id="toast" role="status" hidden></div>
+  <dialog id="profile-dialog"><form id="profile-form"><div class="modal-heading"><div><div class="eyebrow">MAKE IT YOURS</div><h2 id="dialog-title">New profile</h2></div><button type="button" id="close-dialog" class="close" aria-label="Close">×</button></div><input type="hidden" id="profile-id"><label for="profile-name">Profile name</label><input id="profile-name" maxlength="50" placeholder="My survival world" required><label for="profile-version">Minecraft version</label><select id="profile-version" required></select><p class="field-note">Vanilla 1.13+ and modern snapshots. Snapshots may change your worlds.</p><div class="form-row"><div><label for="profile-memory">Memory allocation</label><select id="profile-memory"><option value="2">2 GB</option><option value="4" selected>4 GB</option><option value="6">6 GB</option><option value="8">8 GB</option><option value="12">12 GB</option><option value="16">16 GB</option></select></div><div class="folder-hint">Each profile gets its own<br><strong>worlds, mods & settings folder.</strong></div></div><label for="profile-java">Java runtime (advanced)</label><div class="input-button"><input id="profile-java" value="auto" placeholder="auto or custom path to java.exe"><button type="button" id="browse-java" class="quiet">Browse</button></div><div class="java-check"><span id="java-check-result" class="field-note">Java is included and selected automatically. A custom path is optional.</span><button type="button" id="check-java" class="text-button">Check Java</button></div><p class="form-error" id="profile-error" role="alert"></p><div class="modal-footer"><button type="button" id="cancel-dialog" class="quiet">Cancel</button><button type="submit" id="save-profile" class="primary">Save profile</button></div></form></dialog>
+  <dialog id="login-dialog"><div class="modal-heading"><div><div class="eyebrow">MICROSOFT SIGN-IN</div><h2>Add an account</h2></div><button id="cancel-login" class="close" aria-label="Cancel sign-in">×</button></div><p>Open Microsoft’s sign-in page and enter this code. You can choose a different Microsoft account in your browser.</p><div id="login-code" class="login-code" aria-live="polite">Preparing…</div><p id="login-status" class="field-note">Waiting for Microsoft…</p><div class="modal-footer"><button class="quiet" id="copy-code">Copy code</button><button class="primary" id="open-login">Open Microsoft sign-in</button></div></dialog>
+  <script src="renderer.js"></script>
+</body></html>

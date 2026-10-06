@@ -1,0 +1,22 @@
+{
+  "name": "blocklane",
+  "version": "0.2.2",
+  "description": "A focused Minecraft Java Edition launcher and version manager",
+  "main": "src/main.js",
+  "author": "",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js",
+    "smoke": "electron . --smoke-test",
+    "bundle-java": "node scripts/bundle-java.js",
+    "package": "node scripts/package.js"
+  },
+  "dependencies": {
+    "yauzl": "3.4.0"
+  },
+  "devDependencies": {
+    "electron": "44.5.1"
+  }
+}
