@@ -200,9 +200,8 @@ async function loadBackups() { const id = profilePicker('#backups-profile'), lis
 let pendingRestore = null;
 function openRestoreDialog(profileId, backup) { pendingRestore = { profileId, backup }; $('#restore-title').textContent = backup.name; $('#restore-error').textContent = ''; const worlds = $('#restore-worlds'); worlds.replaceChildren(); for (const world of backup.worlds) { const label = el('label', 'restore-world'); const input = document.createElement('input'); input.type = 'checkbox'; input.value = world; input.checked = true; label.append(input, document.createTextNode(world)); worlds.append(label); } $('#restore-dialog').showModal(); }
 async function loadScreenshots() { const id = profilePicker('#screenshots-profile'), grid = $('#screenshots-grid'); grid.replaceChildren(); if (!id) return grid.append(emptyMods('No profiles yet', 'Create a profile to keep screenshots separate.')); const shots = await api.listScreenshots(id); if (!shots.length) return grid.append(emptyMods('No screenshots yet', 'Minecraft screenshots will appear here.')); for (const shot of shots) { const card = el('article', 'screenshot-card'); if (shot.dataUrl) { const image = document.createElement('img'); image.src = shot.dataUrl; image.alt = shot.name; card.append(image); card.addEventListener('click', () => openScreenshot(id, shot)); } card.append(el('strong', '', shot.name), el('small', '', shot.skipped ? 'Preview skipped: file is large' : `${Math.ceil(shot.size / 1024)} KB`)); grid.append(card); } }
-let activeScreenshot = null, screenshotZoom = 1, screenshotPan = { x: 0, y: 0 }, screenshotDrag = null;
-function setScreenshotZoom(value) { screenshotZoom = Math.max(.25, Math.min(4, value)); const image = $('#screenshot-full'); image.style.transform = `translate(${screenshotPan.x}px, ${screenshotPan.y}px) scale(${screenshotZoom})`; }
-function openScreenshot(profileId, shot) { activeScreenshot = { profileId, ...shot }; $('#screenshot-title').textContent = shot.name; $('#screenshot-full').src = shot.dataUrl; $('#screenshot-full').alt = shot.name; screenshotPan = { x: 0, y: 0 }; setScreenshotZoom(1); $('#screenshot-dialog').showModal(); }
+let activeScreenshot = null;
+function openScreenshot(profileId, shot) { activeScreenshot = { profileId, ...shot }; $('#screenshot-title').textContent = shot.name; $('#screenshot-full').src = shot.dataUrl; $('#screenshot-full').alt = shot.name; $('#screenshot-dialog').showModal(); }
 
 async function loadCatalog(refresh = false) {
   $('#refresh').disabled = true;
@@ -301,13 +300,6 @@ for (const selector of ['#close-restore', '#cancel-restore']) $(selector).addEve
 $('#restore-form').addEventListener('submit', event => { event.preventDefault(); guard(async () => { const worlds = $$('#restore-worlds input:checked').map(input => input.value); await api.restoreBackup(pendingRestore.profileId, pendingRestore.backup.id, worlds); $('#restore-dialog').close(); await loadBackups(); toast('Selected worlds restored.'); }); });
 $('#delete-backup').addEventListener('click', () => guard(async () => { if (!pendingRestore) return; await api.deleteBackup(pendingRestore.profileId, pendingRestore.backup.id); $('#restore-dialog').close(); await loadBackups(); toast('Backup deleted.'); }));
 $('#close-screenshot').addEventListener('click', () => $('#screenshot-dialog').close());
-$('#screenshot-zoom-in').addEventListener('click', () => setScreenshotZoom(screenshotZoom + .25));
-$('#screenshot-zoom-out').addEventListener('click', () => setScreenshotZoom(screenshotZoom - .25));
-$('#screenshot-zoom-reset').addEventListener('click', () => { screenshotPan = { x: 0, y: 0 }; setScreenshotZoom(1); });
-$('#screenshot-stage').addEventListener('wheel', event => { event.preventDefault(); setScreenshotZoom(screenshotZoom + (event.deltaY < 0 ? .15 : -.15)); }, { passive: false });
-$('#screenshot-stage').addEventListener('pointerdown', event => { if (screenshotZoom <= 1) return; screenshotDrag = { x: event.clientX, y: event.clientY, panX: screenshotPan.x, panY: screenshotPan.y }; event.currentTarget.setPointerCapture(event.pointerId); });
-$('#screenshot-stage').addEventListener('pointermove', event => { if (!screenshotDrag) return; screenshotPan = { x: screenshotDrag.panX + event.clientX - screenshotDrag.x, y: screenshotDrag.panY + event.clientY - screenshotDrag.y }; setScreenshotZoom(screenshotZoom); });
-for (const type of ['pointerup', 'pointercancel']) $('#screenshot-stage').addEventListener(type, () => { screenshotDrag = null; });
 $('#export-screenshot').addEventListener('click', () => guard(async () => { if (!activeScreenshot) return; const result = await api.exportScreenshot(activeScreenshot.profileId, activeScreenshot.name); if (result.exported) toast('Screenshot exported.'); }));
 $('#open-backups-folder').addEventListener('click', () => guard(() => api.openBackups($('#backups-profile').value)));
 $('#open-screenshots-folder').addEventListener('click', () => guard(() => api.openScreenshots($('#screenshots-profile').value)));
