@@ -9,9 +9,10 @@ const profile = { id: 'fabric121', name: 'Fabric', version: '1.21.1', loader: 'f
 const iris = { installed: [{ slug: 'iris', title: 'Iris Shaders', filename: 'iris.jar' }], local: [] };
 
 test('shader packs require an installed compatible renderer', () => {
-  assert.deepEqual(shaders.adapter(profile, iris), { id: 'iris', label: 'Iris' });
+  assert.deepEqual(shaders.adapter(profile, iris), { id: 'iris', label: 'Iris', category: 'iris' });
   assert.deepEqual(shaders.adapter({ ...profile, loader: 'forge' }, { installed: [{ slug: 'oculus', title: 'Oculus', filename: 'oculus.jar' }], local: [] }), { id: 'oculus', label: 'Oculus' });
   assert.equal(shaders.adapter(profile, { installed: [], local: [] }), null);
+  assert.deepEqual(shaders.adapter({ ...profile, loader: 'forge' }, { installed: [{ slug: 'optifine', title: 'OptiFine', filename: 'OptiFine.jar' }], local: [] }), { id: 'optifine', label: 'OptiFine', category: 'optifine' });
 });
 
 test('shader discovery is restricted to Iris packs and the selected Minecraft version', async () => {

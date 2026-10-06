@@ -9,8 +9,9 @@ function adapter(profile, modList) {
   const names = [...(modList?.installed || []), ...(modList?.local || [])]
     .map(item => `${item.slug || ''} ${item.title || ''} ${item.filename || ''}`.toLowerCase());
   const has = name => names.some(value => new RegExp(`(^|[^a-z])${name}([^a-z]|$)`).test(value));
-  if (profile.loader === 'fabric' && has('iris')) return { id: 'iris', label: 'Iris' };
+  if (has('iris')) return { id: 'iris', label: 'Iris', category: 'iris' };
   if ((profile.loader === 'forge' || profile.loader === 'neoforge') && has('oculus')) return { id: 'oculus', label: 'Oculus' };
+  if (profile.loader === 'forge' && has('optifine')) return { id: 'optifine', label: 'OptiFine', category: 'optifine' };
   return null;
 }
 
@@ -19,9 +20,10 @@ function safeFilename(name) {
   return name;
 }
 
-function compatible(version, profile) {
+function compatible(version, profile, selectedAdapter) {
   // Oculus intentionally consumes the Iris shader-pack format.
-  return version?.game_versions?.includes(profile.version) && version?.loaders?.includes('iris');
+  const renderer = selectedAdapter?.id === 'optifine' ? 'optifine' : 'iris';
+  return version?.game_versions?.includes(profile.version) && version?.loaders?.includes(renderer);
 }
 
 function mapHit(hit) {
@@ -32,7 +34,8 @@ async function search(profile, selectedAdapter, query, offset, io, signal) {
   if (!selectedAdapter) throw new Error('Install Iris or Oculus in this profile before browsing shader packs.');
   if (typeof query !== 'string' || query.length > 100) throw new Error('Search must be 100 characters or fewer.');
   if (!Number.isInteger(offset) || offset < 0 || offset > 10000) throw new Error('Invalid search page.');
-  const facets = JSON.stringify([['project_type:shader'], ['categories:iris'], [`versions:${profile.version}`]]);
+  const category = selectedAdapter.category || 'iris';
+  const facets = JSON.stringify([['project_type:shader'], [`categories:${category}`], [`versions:${profile.version}`]]);
   const result = await io.remoteJson(mods.apiUrl('/search', { query: query.trim(), facets, index: 'relevance', offset, limit: 20 }), signal);
   if (!Array.isArray(result.hits)) throw new Error('Modrinth returned an invalid shader search result.');
   return { total: Number(result.total_hits) || 0, offset, hits: result.hits.map(mapHit), adapter: selectedAdapter };
@@ -45,10 +48,11 @@ async function manifest(dir, io) {
 }
 async function saveManifest(dir, value, io) { value.packs.sort((a, b) => a.title.localeCompare(b.title)); await io.atomicJson(path.join(dir, '.blocklane', 'managed.json'), value); }
 
-async function versions(projectId, profile, io, signal) {
-  const value = await io.remoteJson(mods.apiUrl(`/project/${mods.modId(projectId, 'project')}/version`, { loaders: JSON.stringify(['iris']), game_versions: JSON.stringify([profile.version]), include_changelog: 'false' }), signal);
+async function versions(projectId, profile, selectedAdapter, io, signal) {
+  const renderer = selectedAdapter?.id === 'optifine' ? 'optifine' : 'iris';
+  const value = await io.remoteJson(mods.apiUrl(`/project/${mods.modId(projectId, 'project')}/version`, { loaders: JSON.stringify([renderer]), game_versions: JSON.stringify([profile.version]), include_changelog: 'false' }), signal);
   if (!Array.isArray(value)) throw new Error('Modrinth returned an invalid shader version list.');
-  return value.filter(version => compatible(version, profile));
+  return value.filter(version => compatible(version, profile, selectedAdapter));
 }
 
 function primaryFile(version) {
@@ -70,7 +74,7 @@ async function list(profile, dir, io) {
 async function install(profile, selectedAdapter, projectId, dir, io, signal, progress = () => {}) {
   if (!selectedAdapter) throw new Error('Install Iris or Oculus in this profile before adding a shader pack.');
   await fs.mkdir(dir, { recursive: true });
-  const choices = await versions(projectId, profile, io, signal);
+  const choices = await versions(projectId, profile, selectedAdapter, io, signal);
   const version = choices.find(value => value.version_type === 'release') || choices[0];
   if (!version) throw new Error(`No Iris-compatible shader pack version exists for Minecraft ${profile.version}.`);
   const info = await mods.project(projectId, io, signal), file = primaryFile(version);
