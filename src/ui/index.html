@@ -13,6 +13,9 @@
       <button class="nav-item active" data-view="play"><span>▷</span>Play</button>
       <button class="nav-item" data-view="versions"><span>▦</span>Versions<span class="count" id="nav-installed">0</span></button>
       <button class="nav-item" data-view="profiles"><span>▤</span>Profiles</button>
+      <button class="nav-item" data-view="backups"><span>▣</span>Backups</button>
+      <button class="nav-item" data-view="screenshots"><span>▧</span>Screenshots</button>
+      <button class="nav-item" data-view="servers"><span>◉</span>Servers</button>
       <button class="nav-item" data-view="mods"><span>⬡</span>Mods<span class="count" id="nav-mods">0</span></button>
       <button class="nav-item" data-view="accounts"><span>♙</span>Accounts</button>
       <button class="nav-item" data-view="activity"><span>⌁</span>Activity</button>
@@ -43,6 +46,9 @@
       <section id="view-profiles" class="view">
         <div class="heading heading-row"><div><div class="eyebrow">A PLACE FOR EVERY PLAYTHROUGH</div><h1>Your profiles</h1><p>Separate worlds and settings, pinned to the version you choose.</p></div><button class="primary" id="new-profile">＋ New profile</button></div><div id="profiles-grid" class="profiles-grid"></div>
       </section>
+      <section id="view-backups" class="view"><div class="heading heading-row"><div><div class="eyebrow">SAFEKEEPING</div><h1>World backups</h1><p>Create and review world snapshots for a profile.</p></div><button id="create-backup" class="primary">Create backup</button></div><div class="filters"><select id="backups-profile"></select><button id="open-backups-folder" class="quiet">Open backups folder</button></div><div id="backups-list" class="profiles-grid"></div></section>
+      <section id="view-screenshots" class="view"><div class="heading heading-row"><div><div class="eyebrow">MOMENTS CAPTURED</div><h1>Screenshots</h1><p>Browse screenshots stored in each profile.</p></div><button id="open-screenshots-folder" class="quiet">Open folder</button></div><div class="filters"><select id="screenshots-profile"></select></div><div id="screenshots-grid" class="screenshots-grid"></div></section>
+      <section id="view-servers" class="view"><div class="heading heading-row"><div><div class="eyebrow">PLAY TOGETHER</div><h1>Saved servers</h1><p>Keep server addresses with the profile you use for them.</p></div><button id="add-server" class="primary">＋ Add server</button></div><div class="filters"><select id="servers-profile"></select></div><div id="servers-list" class="mod-list"></div></section>
       <section id="view-mods" class="view">
         <div class="heading heading-row"><div><div class="eyebrow">PROFILE LIBRARY</div><h1>Mod manager</h1><p>Find compatible Modrinth mods and keep each profile isolated.</p></div><div class="mod-profile-picker"><label for="mods-profile">PROFILE</label><select id="mods-profile"></select></div></div>
         <div id="mods-unavailable" class="empty" hidden><h3>Choose a modded profile</h3><p>Fabric, Forge, and NeoForge profiles can manage mods here.</p><button class="primary" id="mods-create-profile">Create profile</button></div>

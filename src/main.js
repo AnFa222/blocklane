@@ -66,6 +66,8 @@ async function start() {
   handle('profile:delete', id => launcher.deleteProfile(id));
   handle('profile:clone', (id, name) => launcher.cloneProfile(id, name));
   handle('profile:backup', id => launcher.backupProfile(id));
+  handle('profile:backups', id => launcher.backups(id));
+  handle('profile:screenshots', id => launcher.screenshots(id));
   handle('profile:servers', (id, servers) => launcher.servers(id, servers));
   handle('launch', id => launcher.launch(id, accounts.list().selected));
   const idle = () => { if (launcher.busy || launcher.child) throw new Error('Wait for the installation or game to finish before changing accounts.'); };
@@ -108,6 +110,7 @@ async function start() {
   });
   handle('folder:screenshots', async id => { validId(id); const profile = launcher.profile(id); const folder = path.join(launcher.root, 'instances', profile.id, 'screenshots'); await fs.mkdir(folder, { recursive: true }); const error = await shell.openPath(folder); if (error) throw new Error(error); });
   handle('folder:crashes', async id => { validId(id); const profile = launcher.profile(id); const folder = path.join(launcher.root, 'instances', profile.id, 'crash-reports'); await fs.mkdir(folder, { recursive: true }); const error = await shell.openPath(folder); if (error) throw new Error(error); });
+  handle('folder:backups', async id => { validId(id); const profile = launcher.profile(id); const folder = path.join(launcher.root, 'backups', profile.id); await fs.mkdir(folder, { recursive: true }); const error = await shell.openPath(folder); if (error) throw new Error(error); });
   handle('folder:shaderpacks', async id => {
     validId(id);
     if (!launcher.state.profiles.some(p => p.id === id)) throw new Error('Profile does not exist.');
