@@ -49,6 +49,12 @@ async function start() {
   handle('mods:remove', (profileId, projectId) => launcher.modRemove(profileId, projectId));
   handle('mods:updates', profileId => launcher.modUpdates(profileId));
   handle('mods:update-all', profileId => launcher.modUpdateAll(profileId));
+  handle('shaders:status', profileId => launcher.shaderStatus(profileId));
+  handle('shaders:search', (profileId, query, offset) => launcher.shaderSearch(profileId, query, offset));
+  handle('shaders:list', profileId => launcher.shaderList(profileId));
+  handle('shaders:install', (profileId, projectId) => launcher.shaderInstall(profileId, projectId));
+  handle('shaders:enable', (profileId, projectId, enabled) => launcher.shaderEnable(profileId, projectId, enabled));
+  handle('shaders:remove', (profileId, projectId) => launcher.shaderRemove(profileId, projectId));
   handle('cancel', () => launcher.cancel());
   handle('profile:save', p => launcher.saveProfile(p));
   handle('profile:select', id => launcher.selectProfile(id));
@@ -89,6 +95,13 @@ async function start() {
     validId(id);
     if (!launcher.state.profiles.some(p => p.id === id)) throw new Error('Profile does not exist.');
     const folder = path.join(launcher.root, 'instances', id, 'mods');
+    await fs.mkdir(folder, { recursive: true });
+    const error = await shell.openPath(folder); if (error) throw new Error(error);
+  });
+  handle('folder:shaderpacks', async id => {
+    validId(id);
+    if (!launcher.state.profiles.some(p => p.id === id)) throw new Error('Profile does not exist.');
+    const folder = path.join(launcher.root, 'instances', id, 'shaderpacks');
     await fs.mkdir(folder, { recursive: true });
     const error = await shell.openPath(folder); if (error) throw new Error(error);
   });

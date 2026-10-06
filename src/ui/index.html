@@ -17,7 +17,7 @@
       <button class="nav-item" data-view="accounts"><span>♙</span>Accounts</button>
       <button class="nav-item" data-view="activity"><span>⌁</span>Activity</button>
     </nav>
-    <div class="sidebar-bottom"><div class="edition"><span class="status-dot"></span> Java Edition <span class="muted">/ Windows</span></div><button class="account account-button" data-go="accounts"><div class="avatar" id="account-avatar">P</div><div><span id="sidebar-account">Demo player</span><small>Switch or add accounts</small></div></button><div class="build">BLOCKLANE <span>v0.3.0 · ALPHA</span></div></div>
+    <div class="sidebar-bottom"><div class="edition"><span class="status-dot"></span> Java Edition <span class="muted">/ Windows</span></div><button class="account account-button" data-go="accounts"><div class="avatar" id="account-avatar">P</div><div><span id="sidebar-account">Demo player</span><small>Switch or add accounts</small></div></button><div class="build">BLOCKLANE <span>v0.4.5 · ALPHA</span></div></div>
   </aside>
   <main>
     <header><div class="breadcrumb">Workspace <span>/</span> <strong id="page-title">Play</strong></div><div class="launch-actions"><button class="quiet small" id="check-updates">Check for updates</button><button class="quiet small" id="open-folder">↗ &nbsp; Launcher folder</button></div></header>
@@ -47,11 +47,12 @@
         <div class="heading heading-row"><div><div class="eyebrow">PROFILE LIBRARY</div><h1>Mod manager</h1><p>Find compatible Modrinth mods and keep each profile isolated.</p></div><div class="mod-profile-picker"><label for="mods-profile">PROFILE</label><select id="mods-profile"></select></div></div>
         <div id="mods-unavailable" class="empty" hidden><h3>Choose a modded profile</h3><p>Fabric, Forge, and NeoForge profiles can manage mods here.</p><button class="primary" id="mods-create-profile">Create profile</button></div>
         <div id="mods-workspace">
+          <div class="mod-tabs" role="tablist"><button class="active" data-library-tab="mods" role="tab">Mods</button><button id="shader-tab" data-library-tab="shaders" role="tab" hidden>Shaders</button></div>
           <div class="mod-toolbar"><form id="mod-search-form" class="mod-search"><input id="mod-search" type="search" maxlength="100" placeholder="Search compatible mods…" aria-label="Search compatible mods"><button class="primary" type="submit">Search</button></form><button class="quiet" id="check-mod-updates">Check updates</button><button class="quiet" id="open-mods-folder">Mods folder</button></div>
           <div id="mod-update-banner" class="mod-update-banner" hidden><span id="mod-update-copy"></span><button class="primary small" id="update-all-mods">Update all</button></div>
           <div class="mod-columns">
-            <section><div class="section-heading"><h3>Installed</h3><span id="mod-count" class="muted">0 managed</span></div><div id="installed-mods" class="mod-list"></div></section>
-            <section><div class="section-heading"><h3>Discover</h3><span id="mod-result-count" class="muted">Search Modrinth</span></div><div id="mod-results" class="mod-list"><div class="empty"><h3>Find your next mod</h3><p>Results are filtered to this profile’s Minecraft version and loader.</p></div></div><button id="more-mods" class="quiet more" hidden>Load more</button></section>
+            <section><div class="section-heading"><h3 id="library-installed-title">Installed</h3><span id="mod-count" class="muted">0 managed</span></div><div id="installed-mods" class="mod-list"></div></section>
+            <section><div class="section-heading"><h3 id="library-discover-title">Discover</h3><span id="mod-result-count" class="muted">Search Modrinth</span></div><div id="mod-results" class="mod-list"><div class="empty"><h3>Find your next mod</h3><p>Results are filtered to this profile’s Minecraft version and loader.</p></div></div><button id="more-mods" class="quiet more" hidden>Load more</button></section>
           </div>
           <p class="catalog-note">Source: Modrinth. Required dependencies install automatically. Always back up important worlds before changing mods.</p>
         </div>

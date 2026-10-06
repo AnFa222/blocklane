@@ -15,6 +15,7 @@ const { gameEnvironment, jvmMemoryArgs, withoutHeapArgs, liveLogBatch } = requir
 const launcherVersion = require('../package.json').version;
 const loaders = require('./loaders');
 const mods = require('./mods');
+const shaders = require('./shaders');
 
 const MANIFEST = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json';
 const exec = promisify(execFile);
@@ -308,6 +309,7 @@ class Launcher {
     return profile;
   }
   modsDir(profile) { return path.join(this.root, 'instances', profile.id, 'mods'); }
+  shaderpacksDir(profile) { return path.join(this.root, 'instances', profile.id, 'shaderpacks'); }
   async modSearch(profileId, query = '', offset = 0) { const p = this.modProfile(profileId); return mods.search(p, query, offset, this.loaderIO()); }
   async modDetails(profileId, projectId) { const p = this.modProfile(profileId); return mods.project(projectId, this.loaderIO()); }
   async modList(profileId) { const p = this.modProfile(profileId); return mods.list(p, this.modsDir(p), this.loaderIO()); }
@@ -335,6 +337,17 @@ class Launcher {
     finally { this.busy = false; this.controller = null; }
     return this.modList(profileId);
   }
+  async shaderStatus(profileId) { const p = this.modProfile(profileId); return shaders.adapter(p, await this.modList(profileId)); }
+  async shaderSearch(profileId, query = '', offset = 0) { const p = this.modProfile(profileId), selected = await this.shaderStatus(profileId); return shaders.search(p, selected, query, offset, this.loaderIO()); }
+  async shaderList(profileId) { const p = this.modProfile(profileId); return shaders.list(p, this.shaderpacksDir(p), this.loaderIO()); }
+  async shaderInstall(profileId, projectId) {
+    if (this.busy || this.child) throw new Error('Wait for the current operation or game to finish.');
+    const p = this.modProfile(profileId), selected = await this.shaderStatus(profileId); this.busy = true; this.controller = new AbortController();
+    try { return await shaders.install(p, selected, projectId, this.shaderpacksDir(p), this.loaderIO(), this.controller.signal, message => this.progress(message)); }
+    finally { this.busy = false; this.controller = null; }
+  }
+  async shaderEnable(profileId, projectId, enabled) { const p = this.modProfile(profileId); return shaders.setEnabled(p, this.shaderpacksDir(p), projectId, Boolean(enabled), this.loaderIO()); }
+  async shaderRemove(profileId, projectId) { const p = this.modProfile(profileId); return shaders.remove(p, this.shaderpacksDir(p), projectId, this.loaderIO()); }
   async ensureJava(meta, signal) {
     return ensureRuntime(meta, path.join(this.root, 'runtimes'), path.join(__dirname, '..', 'runtimes'),
       { safePath, readJson, hashFile, inspectJava, remoteJson, download, pool, atomicJson }, signal,

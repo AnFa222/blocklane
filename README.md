@@ -2,7 +2,7 @@
 
 An independent Minecraft Java Edition launcher for Windows x64. Blocklane installs and switches Minecraft versions with Vanilla, Fabric, Forge, or NeoForge profiles, includes Java in portable builds, and offers Demo plus Microsoft multi-account support.
 
-**Status: early development, v0.4.4.** Microsoft OAuth, Xbox Live authentication, and XSTS authorization have succeeded in a live user test. Minecraft Services currently rejects Blocklane's application with HTTP 403. Application review is required before full-game sign-in can be validated. Demo remains available. Players never need to register an application or enter a client ID.
+**Status: early development, v0.4.5.** Microsoft OAuth, Xbox Live authentication, and XSTS authorization have succeeded in a live user test. Minecraft Services currently rejects Blocklane's application with HTTP 403. Application review is required before full-game sign-in can be validated. Demo remains available. Players never need to register an application or enter a client ID.
 
 ![Blocklane interface preview](preview.png)
 
@@ -14,7 +14,9 @@ The preview uses test profile data. It does not show an authenticated game sessi
 - Installation of vanilla Java versions from 1.13 onward, including client, libraries, natives, assets, and logging configuration.
 - Checksum validation, reuse and repair of existing files, cancellation, and retries with bounded concurrent downloads.
 - Profiles with pinned game versions, RAM allocation, Java selection, and separate worlds/settings.
-- Fabric, Forge, and NeoForge profiles with compatible loader catalogs, pinned builds, installation/repair, and separate mods folders.`r`n- Modrinth mod manager with loader/version-filtered search, checksum-verified installs, required dependencies, enable/disable, updates, removal, and local JAR visibility.
+- Fabric, Forge, and NeoForge profiles with compatible loader catalogs, pinned builds, installation/repair, and separate mods folders.
+- Modrinth mod manager with loader/version-filtered search, checksum-verified installs, required dependencies, enable/disable, updates, removal, and local JAR visibility.
+- A Shaders tab that appears for profiles with Iris (Fabric) or Oculus (Forge/NeoForge), with Iris-compatible Modrinth shader packs filtered to the profile Minecraft version and stored in its own `shaderpacks` folder.
 - Bundled Java 25 in portable Windows builds; automatic installation of matching Mojang runtimes for other versions.
 - GitHub release update checking from the header, with a direct link to the published installer when a newer version is available.
 - Explicit Demo mode; Microsoft account switching/removal, entitlement checks, and encrypted local refresh-token storage.
@@ -37,7 +39,7 @@ Alternatively, double-click `Start Launcher.cmd`. The launcher downloads Minecra
 3. Install the version.
 4. Select Demo or a saved Microsoft account, then launch.
 
-For modded play, choose Fabric, Forge, or NeoForge in the profile editor and select a compatible loader build. Click **Install profile**, then open **Mods** to search Modrinth for compatible mods. Blocklane installs the selected JAR and its required dependencies into the profile's isolated mods folder, and can enable, disable, update, or remove managed mods. The profile's **Mods folder** button opens that directory; manually copied JARs are shown separately and are never deleted by Blocklane. See [MODS.md](MODS.md).
+For modded play, choose Fabric, Forge, or NeoForge in the profile editor and select a compatible loader build. Click **Install profile**, then open **Mods** to search Modrinth for compatible mods. Blocklane installs the selected JAR and its required dependencies into the profile's isolated mods folder, and can enable, disable, update, or remove managed mods. When it detects Iris on Fabric or Oculus on Forge/NeoForge, the **Shaders** tab appears and installs compatible shader-pack ZIPs into that profile's isolated `shaderpacks` folder. Manually copied JARs and ZIPs are shown separately and are never deleted by Blocklane. See [MODS.md](MODS.md).
 
 Loader availability comes from official repositories. A new Minecraft release may not have a compatible loader yet. Forge and NeoForge use their checksum-verified official client installers and processors inside Blocklane's own data directory. Legacy installer formats without a modern `version.json` are unsupported. See [LOADERS.md](LOADERS.md).
 
@@ -50,9 +52,9 @@ npm run bundle-java
 npm run package -- --release
 ```
 
-The resulting folder is `dist/Blocklane-0.4.4-win32-x64/`; open `Blocklane.exe` and keep its supporting files beside it. Packaging includes Mojang's Java runtime and its license notices. The launcher is currently unsigned.
+The resulting folder is `dist/Blocklane-0.4.5-win32-x64/`; open `Blocklane.exe` and keep its supporting files beside it. Packaging includes Mojang's Java runtime and its license notices. The launcher is currently unsigned.
 
-To make the Windows installer after creating the portable folder, run `npm run installer`. This uses Windows IExpress to produce `dist/installer/Blocklane-0.4.4-Setup.exe`. The installer downloads the matching portable release from GitHub, installs it under the user's local AppData folder, creates a desktop shortcut, and starts Blocklane. Publish the portable ZIP and installer together in the GitHub release so the in-app update button can find both assets.
+To make the Windows installer, run `npm run installer`. This uses electron-builder's NSIS target to produce `dist/nsis/Blocklane-0.4.5-Setup.exe`, which provides the standard Windows installation wizard, creates shortcuts, and includes the launcher plus its bundled Java runtime.
 
 Blocklane's public application ID is embedded in `src/app-config.json`. Developers can override it with `BLOCKLANE_MICROSOFT_CLIENT_ID` at build time. A public desktop client does not use a client secret. The release packaging check verifies that an ID is configured; it does not verify service approval.
 

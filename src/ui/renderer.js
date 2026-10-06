@@ -8,6 +8,7 @@ let accountState = { selected: 'demo', configured: false, accounts: [{ id: 'demo
 let loginStarting = false;
 let loaderRequest = 0, loaderLoading = false;
 let modState = null, modSearchState = { query: '', offset: 0, total: 0, hits: [] }, modUpdates = [], modRequest = 0;
+let shaderState = null, shaderSearchState = { query: '', offset: 0, total: 0, hits: [] }, shaderAdapter = null, libraryTab = 'mods';
 const loaderNames = { vanilla: 'Vanilla', fabric: 'Fabric', forge: 'Forge', neoforge: 'NeoForge' };
 
 function el(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text != null) node.textContent = text; return node; }
@@ -55,59 +56,66 @@ function renderMods() {
   select.value = profiles.some(p => p.id === prior) ? prior : profiles.some(p => p.id === state.selectedProfile) ? state.selectedProfile : profiles[0]?.id || '';
   const available = Boolean(profiles.length); $('#mods-unavailable').hidden = available; $('#mods-workspace').hidden = !available;
   if (!available) { $('#nav-mods').textContent = '0'; return; }
+  const isShaders = libraryTab === 'shaders';
+  if (isShaders && !shaderAdapter) libraryTab = 'mods';
+  const shaders = libraryTab === 'shaders', current = shaders ? shaderState : modState, search = shaders ? shaderSearchState : modSearchState;
+  $('#shader-tab').hidden = !shaderAdapter; $('#shader-tab').textContent = shaderAdapter ? `Shaders · ${shaderAdapter.label}` : 'Shaders';
+  $$('.mod-tabs button').forEach(tab => tab.classList.toggle('active', tab.dataset.libraryTab === libraryTab));
+  $('#mod-search').placeholder = shaders ? `Search ${shaderAdapter.label}-compatible shader packs…` : 'Search compatible mods…';
+  $('#library-installed-title').textContent = shaders ? 'Installed shader packs' : 'Installed'; $('#library-discover-title').textContent = shaders ? 'Discover shader packs' : 'Discover';
+  $('#check-mod-updates').hidden = shaders; $('#mod-update-banner').hidden = shaders || !modUpdates.length; $('#open-mods-folder').textContent = shaders ? 'Shaderpacks folder' : 'Mods folder';
   const installedList = $('#installed-mods'); installedList.replaceChildren();
-  const managed = modState?.installed || [], local = modState?.local || [];
+  const managed = current?.installed || [], local = current?.local || [];
   $('#nav-mods').textContent = managed.length; $('#mod-count').textContent = `${managed.length} managed${local.length ? ` · ${local.length} local` : ''}`;
-  if (!managed.length && !local.length) installedList.append(emptyMods('No mods installed', 'Search Modrinth to add compatible mods.'));
+  if (!managed.length && !local.length) installedList.append(emptyMods(shaders ? 'No shader packs installed' : 'No mods installed', shaders ? 'Search Modrinth for Iris-compatible shader packs.' : 'Search Modrinth to add compatible mods.'));
   for (const mod of managed) {
     const card = el('article', `mod-card${mod.enabled === false ? ' disabled' : ''}`), title = el('div', 'mod-card-title');
     card.append(modIcon(mod.iconUrl, mod.title));
     title.append(el('strong', '', mod.title), el('small', '', `${mod.versionNumber}${mod.dependencyOnly ? ' · dependency' : ''}${mod.missing ? ' · file missing' : ''}`));
     const actions = el('div', 'mod-actions');
-    const toggle = button(mod.enabled === false ? 'Enable' : 'Disable', 'quiet small', async () => { modState = await api.enableMod(selectedModProfile().id, mod.projectId, mod.enabled === false); renderMods(); });
+    const toggle = button(mod.enabled === false ? 'Enable' : 'Disable', 'quiet small', async () => { if (shaders) shaderState = await api.enableShader(selectedModProfile().id, mod.projectId, mod.enabled === false); else modState = await api.enableMod(selectedModProfile().id, mod.projectId, mod.enabled === false); renderMods(); });
     if (mod.dependencyOnly && mod.requiredBy?.length) toggle.disabled = true;
     actions.append(toggle);
-    const remove = button('Remove', 'quiet small', () => confirmModRemoval(card, mod)); if (mod.dependencyOnly && mod.requiredBy?.length) remove.disabled = true;
+    const remove = button('Remove', 'quiet small', () => confirmModRemoval(card, mod, shaders)); if (mod.dependencyOnly && mod.requiredBy?.length) remove.disabled = true;
     actions.append(remove); card.append(title, actions); installedList.append(card);
   }
   for (const mod of local) { const card = el('article', `mod-card${mod.enabled ? '' : ' disabled'}`); const title = el('div', 'mod-card-title'); title.append(el('strong', '', mod.title), el('small', '', `Local file · ${mod.enabled ? 'enabled' : 'disabled'}`)); card.append(modIcon(null, mod.title), title, el('span', 'badge', 'UNMANAGED')); installedList.append(card); }
 
   const results = $('#mod-results'); results.replaceChildren();
-  if (!modSearchState.hits.length) results.append(emptyMods(modSearchState.query ? 'No compatible results' : 'Find your next mod', modSearchState.query ? 'Try another search.' : 'Results are filtered to this profile’s Minecraft version and loader.'));
+  if (!search.hits.length) results.append(emptyMods(search.query ? 'No compatible results' : shaders ? 'Find a shader pack' : 'Find your next mod', search.query ? 'Try another search.' : shaders ? `Results are filtered to Minecraft ${selectedModProfile()?.version || ''} and ${shaderAdapter?.label || 'Iris'} compatibility.` : 'Results are filtered to this profile’s Minecraft version and loader.'));
   const installedIds = new Set(managed.map(mod => mod.projectId));
-  for (const hit of modSearchState.hits) {
+  for (const hit of search.hits) {
     const card = el('article', 'mod-card result'), copy = el('div', 'mod-card-copy');
     copy.append(el('strong', '', hit.title), el('small', '', `by ${hit.author} · ${compactDownloads(hit.downloads)} downloads`), el('p', '', hit.description));
-    const add = button(installedIds.has(hit.projectId) ? 'Reinstall' : 'Install', 'primary small', async () => { await runModTask(() => api.installMod(selectedModProfile().id, hit.projectId)); });
+    const add = button(installedIds.has(hit.projectId) ? 'Reinstall' : 'Install', 'primary small', async () => { await runModTask(() => shaders ? api.installShader(selectedModProfile().id, hit.projectId) : api.installMod(selectedModProfile().id, hit.projectId)); });
     card.append(modIcon(hit.iconUrl, hit.title), copy, add); card.addEventListener('click', event => { if (!event.target.closest('button')) showModDetails(hit.projectId); }); results.append(card);
   }
-  $('#mod-result-count').textContent = modSearchState.query ? `${modSearchState.total.toLocaleString()} compatible results` : 'Search Modrinth';
-  $('#more-mods').hidden = modSearchState.hits.length >= modSearchState.total;
-  $('#mod-update-banner').hidden = !modUpdates.length;
+  $('#mod-result-count').textContent = search.query ? `${search.total.toLocaleString()} compatible results` : 'Search Modrinth';
+  $('#more-mods').hidden = search.hits.length >= search.total;
   $('#mod-update-copy').textContent = modUpdates.length ? `${modUpdates.length} update${modUpdates.length === 1 ? '' : 's'} available: ${modUpdates.map(u => u.title).join(', ')}` : '';
 }
 
 function renderModDetails(details) { const content = $('#mod-details-content'); content.replaceChildren(); const meta = el('div', 'mod-details-meta'); meta.append(modIcon(details.iconUrl, details.title), el('div', '', `${details.projectType} · ${compactDownloads(details.downloads)} downloads · ${compactDownloads(details.followers)} followers`)); content.append(meta, el('p', 'mod-details-description', details.description || 'No description provided.')); const groups = [['Supported Minecraft', details.gameVersions], ['Loaders', details.loaders], ['Categories', details.categories]]; for (const [label, values] of groups) if (values?.length) { const row = el('div', 'mod-detail-row'); row.append(el('strong', '', label), el('span', '', values.join(' · '))); content.append(row); } if (details.license?.name) content.append(el('div', 'mod-detail-row', `License · ${details.license.name}`)); if (details.body) { content.append(el('strong', 'mod-details-body-heading', 'About this mod')); const body = el('div', 'mod-details-body'); body.innerHTML = markdownToHtml(details.body); body.addEventListener('click', event => { const link = event.target.closest('[data-external-link]'); if (link) { event.preventDefault(); guard(() => api.openModrinth(link.dataset.externalLink)); } }); content.append(body); } const links = el('div', 'mod-detail-links'); for (const [label, url] of [['Issues', details.issuesUrl], ['Source', details.sourceUrl], ['Wiki', details.wikiUrl], ['Discord', details.discordUrl]]) if (url) links.append(button(label, 'quiet small', () => guard(() => api.openModrinth(url)))); if (links.children.length) { content.append(el('strong', '', 'Project links'), links); } }
-async function showModDetails(projectId) { const p = selectedModProfile(); if (!p) return; const dialog = $('#mod-details-dialog'); $('#mod-details-title').textContent = 'Loading…'; $('#mod-details-content').replaceChildren(el('p', 'field-note', 'Loading project details…')); $('#install-from-details').disabled = true; dialog.showModal(); try { const details = await api.modDetails(p.id, projectId); $('#mod-details-title').textContent = details.title; renderModDetails(details); const installed = new Set((modState?.installed || []).map(mod => mod.projectId)); const install = $('#install-from-details'); install.disabled = false; install.textContent = installed.has(projectId) ? 'Reinstall mod' : 'Install mod'; install.onclick = async () => { await runModTask(() => api.installMod(p.id, projectId)); dialog.close(); }; $('#open-modrinth').onclick = () => guard(() => api.openModrinth(details.projectUrl)); } catch (error) { $('#mod-details-content').replaceChildren(el('p', 'field-note', error.message)); } }
+async function showModDetails(projectId) { const p = selectedModProfile(); if (!p) return; const shaders = libraryTab === 'shaders', dialog = $('#mod-details-dialog'); $('#mod-details-title').textContent = 'Loading…'; $('#mod-details-content').replaceChildren(el('p', 'field-note', 'Loading project details…')); $('#install-from-details').disabled = true; dialog.showModal(); try { const details = await api.modDetails(p.id, projectId); $('#mod-details-title').textContent = details.title; renderModDetails(details); const installed = new Set(((shaders ? shaderState : modState)?.installed || []).map(mod => mod.projectId)); const install = $('#install-from-details'); install.disabled = false; install.textContent = installed.has(projectId) ? `Reinstall ${shaders ? 'shader pack' : 'mod'}` : `Install ${shaders ? 'shader pack' : 'mod'}`; install.onclick = async () => { await runModTask(() => shaders ? api.installShader(p.id, projectId) : api.installMod(p.id, projectId)); dialog.close(); }; $('#open-modrinth').onclick = () => guard(() => api.openModrinth(details.projectUrl)); } catch (error) { $('#mod-details-content').replaceChildren(el('p', 'field-note', error.message)); } }
 function emptyMods(title, copy) { const node = el('div', 'empty compact'); node.append(el('h3', '', title), el('p', '', copy)); return node; }
-function confirmModRemoval(card, mod) {
-  const actions = card.querySelector('.mod-actions'); actions.replaceChildren(el('small', '', 'Remove this mod?'), button('Keep', 'quiet small', renderMods), button('Remove', 'primary small', async () => { modState = await api.removeMod(selectedModProfile().id, mod.projectId); modUpdates = []; renderMods(); }));
+function confirmModRemoval(card, mod, shaders = false) {
+  const actions = card.querySelector('.mod-actions'); actions.replaceChildren(el('small', '', `Remove this ${shaders ? 'shader pack' : 'mod'}?`), button('Keep', 'quiet small', renderMods), button('Remove', 'primary small', async () => { if (shaders) shaderState = await api.removeShader(selectedModProfile().id, mod.projectId); else { modState = await api.removeMod(selectedModProfile().id, mod.projectId); modUpdates = []; } renderMods(); }));
 }
 async function loadModsView() {
   renderMods(); const p = selectedModProfile(); if (!p) return;
-  const request = ++modRequest; const [value, discovery] = await Promise.all([api.listMods(p.id), api.searchMods(p.id, '', 0)]); if (request !== modRequest) return; modState = value; modSearchState = { ...discovery, query: '', hits: discovery.hits }; modUpdates = []; renderMods();
+  const request = ++modRequest; const [value, adapter] = await Promise.all([api.listMods(p.id), api.shaderStatus(p.id)]); if (request !== modRequest) return; modState = value; shaderAdapter = adapter; if (!adapter && libraryTab === 'shaders') libraryTab = 'mods'; const discovery = libraryTab === 'shaders' ? await api.searchShaders(p.id, '', 0) : await api.searchMods(p.id, '', 0); if (request !== modRequest) return; if (libraryTab === 'shaders') { shaderState = await api.listShaders(p.id); shaderSearchState = { ...discovery, query: '', hits: discovery.hits }; } else modSearchState = { ...discovery, query: '', hits: discovery.hits }; modUpdates = []; renderMods();
 }
 async function searchMods(append = false) {
   const p = selectedModProfile(); if (!p) return;
-  const query = $('#mod-search').value.trim(), offset = append ? modSearchState.hits.length : 0, request = ++modRequest;
+  const shaders = libraryTab === 'shaders', current = shaders ? shaderSearchState : modSearchState, query = $('#mod-search').value.trim(), offset = append ? current.hits.length : 0, request = ++modRequest;
   $('#mod-result-count').textContent = 'Searching…';
-  const result = await api.searchMods(p.id, query, offset); if (request !== modRequest) return;
-  modSearchState = { ...result, query, hits: append ? [...modSearchState.hits, ...result.hits] : result.hits }; renderMods();
+  const result = await (shaders ? api.searchShaders(p.id, query, offset) : api.searchMods(p.id, query, offset)); if (request !== modRequest) return;
+  const next = { ...result, query, hits: append ? [...current.hits, ...result.hits] : result.hits }; if (shaders) shaderSearchState = next; else modSearchState = next; renderMods();
 }
 async function runModTask(action) {
   busy = true; render(); $('#download-panel').hidden = false; $('#cancel-install').disabled = false;
-  try { modState = await action(); modUpdates = []; renderMods(); }
-  finally { busy = false; $('#download-panel').hidden = true; state = await api.state(); render(); renderMods(); }
+  try { const result = await action(); if (libraryTab === 'shaders') shaderState = result; else modState = result; modUpdates = []; }
+  finally { busy = false; $('#download-panel').hidden = true; state = await api.state(); render(); await loadModsView(); }
 }
 
 function renderAccounts() {
@@ -232,13 +240,14 @@ async function loadLoaderVersions(selectedVersion) {
 }
 $('#profile-loader').addEventListener('change', () => loadLoaderVersions());
 $('#profile-version').addEventListener('change', () => loadLoaderVersions());
-$('#mods-profile').addEventListener('change', () => { modState = null; modSearchState = { query: '', offset: 0, total: 0, hits: [] }; guard(loadModsView); });
+$('#mods-profile').addEventListener('change', () => { modState = null; shaderState = null; shaderAdapter = null; modSearchState = { query: '', offset: 0, total: 0, hits: [] }; shaderSearchState = { query: '', offset: 0, total: 0, hits: [] }; guard(loadModsView); });
+$$('[data-library-tab]').forEach(tab => tab.addEventListener('click', () => { if (tab.dataset.libraryTab === 'shaders' && !shaderAdapter) return; libraryTab = tab.dataset.libraryTab; $('#mod-search').value = ''; guard(loadModsView); }));
 $('#mod-search-form').addEventListener('submit', event => { event.preventDefault(); guard(() => searchMods(false)); });
 $('#more-mods').addEventListener('click', () => guard(() => searchMods(true)));
 $('#close-mod-details').addEventListener('click', () => $('#mod-details-dialog').close());
 $('#mod-details-dialog').addEventListener('cancel', event => { event.preventDefault(); event.currentTarget.close(); });
 $('#mod-details-dialog').addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); });
-$('#open-mods-folder').addEventListener('click', () => guard(() => api.openMods(selectedModProfile().id)));
+$('#open-mods-folder').addEventListener('click', () => guard(() => libraryTab === 'shaders' ? api.openShaders(selectedModProfile().id) : api.openMods(selectedModProfile().id)));
 $('#mods-create-profile').addEventListener('click', () => openProfile());
 $('#check-mod-updates').addEventListener('click', () => guard(async () => { modUpdates = await api.modUpdates(selectedModProfile().id); renderMods(); if (!modUpdates.length) toast('All managed mods are up to date.'); }));
 $('#update-all-mods').addEventListener('click', () => guard(() => runModTask(() => api.updateAllMods(selectedModProfile().id))));
