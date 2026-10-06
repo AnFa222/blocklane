@@ -1,6 +1,11 @@
 # Validation — 6 October 2026
 
-## Current status — v0.2.2
+## Current status — v0.4.4
+
+The 45-test suite passes. Mod manager coverage verifies loader/version-filtered Modrinth search, SHA-1 checked installs, required dependency tracking, transactional rollback, enable/disable, orphan cleanup, local JAR visibility, protected dependencies, and bounded HTTP retry behavior. The browser Modrinth manager test passes, and a live isolated Sodium search/install/remove check completed successfully against Modrinth.
+
+
+## Historical status — v0.2.2
 
 The 30-test suite passed before the service-specific authentication diagnostics were added. All 12 authentication tests then passed, including the new test for identifying the failed service without including response secrets. A live user sign-in completed Microsoft OAuth, Xbox Live, and XSTS, but Minecraft Services returned HTTP 403 at `/authentication/login_with_xbox`. Public client flows were enabled and saved in Microsoft Entra. Full-game sign-in and gameplay remain blocked pending application service access review. The sections below are historical records of earlier milestones.
 
@@ -42,3 +47,16 @@ All 15 automated tests passed. Four new network tests cover HTTP 429 backoff and
 - Microsoft authentication and owned full-game launch are outside this first milestone; every generated game launch uses demo mode.
 
 Run `npm test` for the automated core checks and `npm run smoke` in a normal Windows session for the actual Electron/IPC smoke test. Smoke-test data is isolated from normal launcher data. The smoke test requires a live Mojang catalog connection.
+# Launch policy - v0.2.3
+
+All 33 automated tests passed. New coverage verifies case-insensitive removal of inherited JVM injection variables while preserving ordinary environment values, and a 10,000-message live-log flood with bounded memory, batched emission and exit-tail flushing. Existing cross-chunk token-redaction tests still pass. Built a portable Windows x64 release with the bundled runtime. No new in-game FPS improvement or stutter fix has been established; the already-running game remains on v0.2.2 until restarted.
+# Mod loaders - v0.3.0
+
+All 40 automated tests passed. Browser UI tests and a real sandboxed Electron smoke test passed. Actual official Fabric, Forge and NeoForge installers for Minecraft 1.21.1 completed in isolated test data, with resulting launch libraries checked. See LOADERS.md for exact builds, checks and limits. Full modded gameplay and user mod compatibility are not yet verified.
+
+
+
+
+
+
+

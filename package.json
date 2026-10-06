@@ -1,6 +1,6 @@
 {
   "name": "blocklane",
-  "version": "0.2.2",
+  "version": "0.4.4",
   "description": "A focused Minecraft Java Edition launcher and version manager",
   "main": "src/main.js",
   "author": "",
@@ -11,12 +11,40 @@
     "test": "node --test test/*.test.js",
     "smoke": "electron . --smoke-test",
     "bundle-java": "node scripts/bundle-java.js",
-    "package": "node scripts/package.js"
+    "package": "node scripts/package.js",
+    "installer": "electron-builder --win nsis"
   },
   "dependencies": {
     "yauzl": "3.4.0"
   },
   "devDependencies": {
-    "electron": "44.5.1"
+    "electron": "44.5.1",
+    "electron-builder": "26.0.12"
+  },
+  "build": {
+    "appId": "com.blocklane.launcher",
+    "productName": "Blocklane",
+    "artifactName": "Blocklane-${version}-Setup.${ext}",
+    "directories": {
+      "output": "dist/nsis"
+    },
+    "files": [
+      "src/**/*",
+      "runtimes/**/*",
+      "package.json"
+    ],
+    "asar": false,
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false
+    }
   }
 }

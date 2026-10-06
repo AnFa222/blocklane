@@ -82,7 +82,7 @@ class Accounts {
   }
   list() {
     return { selected: this.data.selected, configured: Boolean(this.data.clientId), pending: Boolean(this.pending), issue: this.issue,
-      accounts: [{ id: 'demo', name: 'Demo player', type: 'demo' }, ...this.data.accounts.map(a => ({ id: a.id, name: a.name, type: 'microsoft' }))] };
+      accounts: [{ id: 'demo', name: 'Demo player', type: 'demo' }, ...this.data.accounts.map(a => ({ id: a.id, name: a.name, type: a.type === 'local' ? 'local' : 'microsoft' }))] };
   }
   async persist() {
     if (this.issue) throw new Error(this.issue);
@@ -110,6 +110,11 @@ class Accounts {
     if (id === 'demo') throw new Error('Demo is always available.');
     const result = await this.change(() => { this.data.accounts = this.data.accounts.filter(a => a.id !== id); if (this.data.selected === id) this.data.selected = 'demo'; });
     this.sessions.delete(id); return result;
+  }
+  async createLocal(name) {
+    if (typeof name !== 'string' || !/^[A-Za-z0-9_]{1,16}$/.test(name.trim())) throw new Error('Local names must be 1–16 letters, numbers, or underscores.');
+    const account = { id: crypto.randomUUID().replace(/-/g, ''), name: name.trim(), type: 'local' };
+    return this.change(() => { this.data.accounts = [...this.data.accounts.filter(a => a.type !== 'local' || a.name !== account.name), account]; this.data.selected = account.id; });
   }
   async begin() {
     if (this.pending || this.locked) throw new Error('A sign-in is already in progress.');
@@ -171,6 +176,7 @@ class Accounts {
     if (this.locked || this.pending) throw new Error('Finish or cancel sign-in before launching.');
     const account = this.data.accounts.find(a => a.id === id);
     if (!account) throw new Error('Select a saved Microsoft account or Demo.');
+    if (account.type === 'local') return { local: true, demo: false, uuid: account.id, name: account.name, accessToken: '0', xuid: '', clientId: '', expiresAt: Infinity };
     const cached = this.sessions.get(id);
     if (cached && cached.expiresAt > this.now() + 60000) return cached;
     this.locked = true;

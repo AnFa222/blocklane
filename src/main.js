@@ -2,9 +2,10 @@ const { app, BrowserWindow, ipcMain, dialog, shell, session, safeStorage } = req
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const { pathToFileURL } = require('node:url');
-const { Launcher, inspectJava } = require('./core');
+const { Launcher, inspectJava, validId } = require('./core');
 const { Accounts } = require('./auth');
 const appConfig = require('./app-config.json');
+const updater = require('./updater');
 
 const smoke = process.argv.includes('--smoke-test');
 const dataOverride = process.env.BLOCKLANE_DATA_DIR;
@@ -37,6 +38,17 @@ async function start() {
   handle('state', () => launcher.snapshot());
   handle('catalog', refresh => launcher.catalog(Boolean(refresh)));
   handle('install', id => launcher.install(id));
+  handle('profile:install', id => launcher.installProfile(id));
+  handle('loaders:versions', (loader, version) => launcher.loaderVersions(loader, version));
+  handle('mods:search', (profileId, query, offset) => launcher.modSearch(profileId, query, offset));
+  handle('mods:details', (profileId, projectId) => launcher.modDetails(profileId, projectId));
+  handle('mods:open', async url => { const parsed = new URL(String(url)); if (parsed.protocol !== 'https:' || parsed.username || parsed.password) throw new Error('Only secure HTTPS links can be opened.'); return shell.openExternal(parsed.href); });
+  handle('mods:list', profileId => launcher.modList(profileId));
+  handle('mods:install', (profileId, projectId) => launcher.modInstall(profileId, projectId));
+  handle('mods:enable', (profileId, projectId, enabled) => launcher.modEnable(profileId, projectId, enabled));
+  handle('mods:remove', (profileId, projectId) => launcher.modRemove(profileId, projectId));
+  handle('mods:updates', profileId => launcher.modUpdates(profileId));
+  handle('mods:update-all', profileId => launcher.modUpdateAll(profileId));
   handle('cancel', () => launcher.cancel());
   handle('profile:save', p => launcher.saveProfile(p));
   handle('profile:select', id => launcher.selectProfile(id));
@@ -46,6 +58,7 @@ async function start() {
   const notifyAccounts = () => { if (window && !window.isDestroyed()) window.webContents.send('launcher:accounts-changed', accounts.list()); };
   handle('accounts:list', () => accounts.list());
   handle('accounts:select', id => { idle(); return accounts.select(id); });
+  handle('accounts:local', name => { idle(); return accounts.createLocal(name); });
   handle('accounts:remove', id => { idle(); return accounts.remove(id); });
   handle('accounts:begin', async () => {
     idle();
@@ -70,6 +83,15 @@ async function start() {
     return result.response === 1 ? launcher.removeVersion(id) : launcher.snapshot();
   });
   handle('folder:open', async () => { const error = await shell.openPath(launcher.root); if (error) throw new Error(error); });
+  handle('updates:check', () => updater.check());
+  handle('updates:open', async url => { const parsed = new URL(String(url)); if (parsed.protocol !== 'https:' || !['github.com', 'objects.githubusercontent.com'].includes(parsed.hostname)) throw new Error('Only GitHub update links can be opened.'); return shell.openExternal(parsed.href); });
+  handle('folder:mods', async id => {
+    validId(id);
+    if (!launcher.state.profiles.some(p => p.id === id)) throw new Error('Profile does not exist.');
+    const folder = path.join(launcher.root, 'instances', id, 'mods');
+    await fs.mkdir(folder, { recursive: true });
+    const error = await shell.openPath(folder); if (error) throw new Error(error);
+  });
   window = new BrowserWindow({ width: 1240, height: 850, minWidth: 1000, minHeight: 700, show: !smoke, title: 'Blocklane', backgroundColor: '#101412', autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true }
   });
@@ -100,7 +122,19 @@ async function start() {
       if (saved.profiles.length !== state.profiles.length + 1) throw new Error('Profile persistence failed');
       document.querySelector('[data-view="play"]').click();
       if (!document.querySelector('#play-button').textContent.includes('Install')) throw new Error('Install action missing');
-      return { title: document.title, bridge: Boolean(window.launcher), nodeDisabled: typeof require === 'undefined', catalogRendered: true, profileSaved: true };
+      document.querySelector('#edit-active').click();
+      document.querySelector('#profile-version').value = '1.21.1';
+      for (const loader of ['fabric', 'forge', 'neoforge']) {
+        document.querySelector('#profile-loader').value = loader;
+        document.querySelector('#profile-loader').dispatchEvent(new Event('change'));
+        await waitFor(() => !document.querySelector('#save-profile').disabled);
+        if (!document.querySelector('#profile-loader-version').value) throw new Error('Loader catalog missing: ' + loader);
+      }
+      document.querySelector('#profile-form').requestSubmit();
+      await waitFor(() => !document.querySelector('#profile-dialog').open);
+      const modded = (await window.launcher.state()).profiles.find(p => p.id === saved.selectedProfile);
+      if (modded.loader !== 'neoforge' || !modded.loaderVersion) throw new Error('Modded profile persistence failed');
+      return { title: document.title, bridge: Boolean(window.launcher), nodeDisabled: typeof require === 'undefined', catalogRendered: true, profileSaved: true, loaderCatalogs: true, moddedProfileSaved: true };
     })()`);
     await new Promise(resolve => setTimeout(resolve, 1500));
     const screenshot = await window.webContents.capturePage();
@@ -111,3 +145,4 @@ async function start() {
 }
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => accounts?.cancel());
+

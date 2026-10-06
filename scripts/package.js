@@ -37,6 +37,10 @@ async function main() {
   await fs.copyFile(path.join(project, 'README.md'), path.join(target, 'README.md'));
   await fs.copyFile(path.join(project, 'VALIDATION.md'), path.join(target, 'VALIDATION.md'));
   await fs.copyFile(path.join(project, 'MICROSOFT-SETUP.md'), path.join(target, 'MICROSOFT-SETUP.md'));
+  await fs.copyFile(path.join(project, 'LAUNCH-POLICY.md'), path.join(target, 'LAUNCH-POLICY.md'));
+  await fs.copyFile(path.join(project, 'LOADERS.md'), path.join(target, 'LOADERS.md'));
+  await fs.copyFile(path.join(project, 'MODS.md'), path.join(target, 'MODS.md'));
   console.log(`Portable Windows launcher: ${target}`);
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
+

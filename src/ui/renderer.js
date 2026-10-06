@@ -6,15 +6,20 @@ let catalog = { versions: [], latest: {} };
 let filter = 'release', limit = 40, busy = false, running = false, toastTimer;
 let accountState = { selected: 'demo', configured: false, accounts: [{ id: 'demo', name: 'Demo player', type: 'demo' }] };
 let loginStarting = false;
+let loaderRequest = 0, loaderLoading = false;
+let modState = null, modSearchState = { query: '', offset: 0, total: 0, hits: [] }, modUpdates = [], modRequest = 0;
+const loaderNames = { vanilla: 'Vanilla', fabric: 'Fabric', forge: 'Forge', neoforge: 'NeoForge' };
 
 function el(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text != null) node.textContent = text; return node; }
 function button(text, className, action) { const node = el('button', className, text); node.addEventListener('click', () => guard(action)); return node; }
 function toast(message, error = false) { clearTimeout(toastTimer); $('#toast').textContent = message; $('#toast').className = error ? 'error' : ''; $('#toast').hidden = false; toastTimer = setTimeout(() => $('#toast').hidden = true, error ? 12000 : 4500); }
 function log(message) { const box = $('#log'); box.textContent = (box.textContent + `\n[${new Date().toLocaleTimeString()}] ${message}`).slice(-80000); box.scrollTop = box.scrollHeight; }
 async function guard(action) { try { return await action(); } catch (e) { toast(e.message, true); log(e.message); } }
-function navigate(view) { $$('.view').forEach(n => n.classList.toggle('active', n.id === `view-${view}`)); $$('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view)); $('#page-title').textContent = view[0].toUpperCase() + view.slice(1); }
+function navigate(view) { $$('.view').forEach(n => n.classList.toggle('active', n.id === `view-${view}`)); $$('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view)); $('#page-title').textContent = view[0].toUpperCase() + view.slice(1); if (view === 'mods') guard(loadModsView); }
 function installed(id) { return state.installed.find(v => v.id === id); }
 function currentProfile() { return state.profiles.find(p => p.id === state.selectedProfile); }
+function profileInstalled(p) { return p && installed(p.version) && ((p.loader || 'vanilla') === 'vanilla' || state.installed.some(v => v.baseVersion === p.version && v.loader === p.loader && v.loaderVersion === p.loaderVersion)); }
+function profileLabel(p) { return `${loaderNames[p.loader || 'vanilla']} ${p.version}${p.loaderVersion ? ' · ' + p.loaderVersion : ''}`; }
 function supported(v) { return ['release', 'snapshot'].includes(v.type) && v.releaseTime >= '2018-07-18'; }
 
 function render() {
@@ -27,12 +32,82 @@ function render() {
   select.value = state.selectedProfile || '';
   select.disabled = busy || running || !state.profiles.length;
   const p = currentProfile();
-  $('#profile-detail').textContent = p ? `Vanilla ${p.version}  ·  ${p.memory} GB RAM  ·  ${installed(p.version) ? 'Installed' : 'Not installed'}` : 'Pin a version and give your worlds a home.';
+  $('#nav-mods').textContent = modState?.installed?.length || 0;
+  $('#profile-detail').textContent = p ? `${profileLabel(p)}  ·  ${p.memory} GB RAM  ·  ${profileInstalled(p) ? 'Installed' : 'Not installed'}` : 'Pin a version and give your worlds a home.';
   $('#edit-active').disabled = !p || busy || running;
   $('#play-button').disabled = busy || running || accountState.pending || loginStarting || (!p && !catalog.versions.length);
-  $('#play-button').textContent = running ? 'Minecraft is running' : busy ? 'Working…' : !p ? '＋ Create profile' : installed(p.version) ? accountState.selected === 'demo' ? '▷ Play demo' : '▷ Play Minecraft' : '↓ Install version';
+  $('#play-button').textContent = running ? 'Minecraft is running' : busy ? 'Working…' : !p ? '＋ Create profile' : profileInstalled(p) ? accountState.selected === 'demo' ? '▷ Play demo' : '▷ Play Minecraft' : '↓ Install profile';
   $('#new-profile').disabled = !catalog.versions.length || busy || running;
   renderVersions(); renderProfiles(); renderAccounts();
+}
+
+function modProfiles() { return state.profiles.filter(p => (p.loader || 'vanilla') !== 'vanilla'); }
+function selectedModProfile() { return state.profiles.find(p => p.id === $('#mods-profile').value) || modProfiles().find(p => p.id === state.selectedProfile) || modProfiles()[0]; }
+function compactDownloads(value) { return value >= 1000000 ? `${(value / 1000000).toFixed(value >= 10000000 ? 0 : 1)}m` : value >= 1000 ? `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k` : String(value); }
+function modIcon(url, title) { const fallback = el('span', 'mod-icon-fallback', (title || '?').trim().slice(0, 1).toUpperCase()); try { const parsed = new URL(url || ''); if (parsed.protocol !== 'https:' || !['cdn.modrinth.com', 'api.modrinth.com'].includes(parsed.hostname)) return fallback; const image = document.createElement('img'); image.className = 'mod-icon'; image.loading = 'lazy'; image.alt = ''; image.src = parsed.href; image.addEventListener('error', () => image.replaceWith(fallback), { once: true }); return image; } catch { return fallback; } }
+function markdownUrl(value) { try { const url = new URL(value); if (url.protocol !== 'https:' || url.username || url.password) return ''; return url.href.replace(/&/g, '&amp;').replace(/"/g, '&quot;'); } catch { return ''; } }
+function markdownToHtml(markdown) { let source = String(markdown || '').replace(/<img\b[^>]*\bsrc=["'](https:\/\/[^"']+)["'][^>]*>/gi, (_, url) => `![image](${url})`); let text = source.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); text = text.replace(/!\[([^\]]*)\]\((https:\/\/[^)\s]+)\)/g, (_, alt, url) => { const safe = markdownUrl(url); return safe ? `<img class="mod-body-image" alt="${alt}" src="${safe}">` : alt; }); text = text.replace(/\[([^\]]+)\]\((https:\/\/[^)\s]+)\)/g, (_, label, url) => { const safe = markdownUrl(url); return safe ? `<a href="${safe}" data-external-link="${safe}">${label}</a>` : label; }); text = text.replace(/^###### (.+)$/gm, '<h6>$1</h6>').replace(/^##### (.+)$/gm, '<h5>$1</h5>').replace(/^#### (.+)$/gm, '<h4>$1</h4>').replace(/^### (.+)$/gm, '<h3>$1</h3>').replace(/^## (.+)$/gm, '<h2>$1</h2>').replace(/^# (.+)$/gm, '<h1>$1</h1>').replace(/^[-*] (.+)$/gm, '<li>$1</li>').replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>'); text = text.replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>').replace(/__([^_\n]+)__/g, '<strong>$1</strong>').replace(/\*([^*\n]+)\*/g, '<em>$1</em>').replace(/_([^_\n]+)_/g, '<em>$1</em>'); return text.split(/\n{2,}/).map(block => /^<(h[1-6]|ul)>/.test(block.trim()) ? block : `<p>${block.replace(/\n/g, '<br>')}</p>`).join(''); }
+
+function renderMods() {
+  const profiles = modProfiles(), select = $('#mods-profile'), prior = select.value;
+  select.replaceChildren();
+  for (const p of profiles) { const option = el('option', '', `${p.name} · ${loaderNames[p.loader]} ${p.version}`); option.value = p.id; select.append(option); }
+  select.value = profiles.some(p => p.id === prior) ? prior : profiles.some(p => p.id === state.selectedProfile) ? state.selectedProfile : profiles[0]?.id || '';
+  const available = Boolean(profiles.length); $('#mods-unavailable').hidden = available; $('#mods-workspace').hidden = !available;
+  if (!available) { $('#nav-mods').textContent = '0'; return; }
+  const installedList = $('#installed-mods'); installedList.replaceChildren();
+  const managed = modState?.installed || [], local = modState?.local || [];
+  $('#nav-mods').textContent = managed.length; $('#mod-count').textContent = `${managed.length} managed${local.length ? ` · ${local.length} local` : ''}`;
+  if (!managed.length && !local.length) installedList.append(emptyMods('No mods installed', 'Search Modrinth to add compatible mods.'));
+  for (const mod of managed) {
+    const card = el('article', `mod-card${mod.enabled === false ? ' disabled' : ''}`), title = el('div', 'mod-card-title');
+    card.append(modIcon(mod.iconUrl, mod.title));
+    title.append(el('strong', '', mod.title), el('small', '', `${mod.versionNumber}${mod.dependencyOnly ? ' · dependency' : ''}${mod.missing ? ' · file missing' : ''}`));
+    const actions = el('div', 'mod-actions');
+    const toggle = button(mod.enabled === false ? 'Enable' : 'Disable', 'quiet small', async () => { modState = await api.enableMod(selectedModProfile().id, mod.projectId, mod.enabled === false); renderMods(); });
+    if (mod.dependencyOnly && mod.requiredBy?.length) toggle.disabled = true;
+    actions.append(toggle);
+    const remove = button('Remove', 'quiet small', () => confirmModRemoval(card, mod)); if (mod.dependencyOnly && mod.requiredBy?.length) remove.disabled = true;
+    actions.append(remove); card.append(title, actions); installedList.append(card);
+  }
+  for (const mod of local) { const card = el('article', `mod-card${mod.enabled ? '' : ' disabled'}`); const title = el('div', 'mod-card-title'); title.append(el('strong', '', mod.title), el('small', '', `Local file · ${mod.enabled ? 'enabled' : 'disabled'}`)); card.append(modIcon(null, mod.title), title, el('span', 'badge', 'UNMANAGED')); installedList.append(card); }
+
+  const results = $('#mod-results'); results.replaceChildren();
+  if (!modSearchState.hits.length) results.append(emptyMods(modSearchState.query ? 'No compatible results' : 'Find your next mod', modSearchState.query ? 'Try another search.' : 'Results are filtered to this profile’s Minecraft version and loader.'));
+  const installedIds = new Set(managed.map(mod => mod.projectId));
+  for (const hit of modSearchState.hits) {
+    const card = el('article', 'mod-card result'), copy = el('div', 'mod-card-copy');
+    copy.append(el('strong', '', hit.title), el('small', '', `by ${hit.author} · ${compactDownloads(hit.downloads)} downloads`), el('p', '', hit.description));
+    const add = button(installedIds.has(hit.projectId) ? 'Reinstall' : 'Install', 'primary small', async () => { await runModTask(() => api.installMod(selectedModProfile().id, hit.projectId)); });
+    card.append(modIcon(hit.iconUrl, hit.title), copy, add); card.addEventListener('click', event => { if (!event.target.closest('button')) showModDetails(hit.projectId); }); results.append(card);
+  }
+  $('#mod-result-count').textContent = modSearchState.query ? `${modSearchState.total.toLocaleString()} compatible results` : 'Search Modrinth';
+  $('#more-mods').hidden = modSearchState.hits.length >= modSearchState.total;
+  $('#mod-update-banner').hidden = !modUpdates.length;
+  $('#mod-update-copy').textContent = modUpdates.length ? `${modUpdates.length} update${modUpdates.length === 1 ? '' : 's'} available: ${modUpdates.map(u => u.title).join(', ')}` : '';
+}
+
+function renderModDetails(details) { const content = $('#mod-details-content'); content.replaceChildren(); const meta = el('div', 'mod-details-meta'); meta.append(modIcon(details.iconUrl, details.title), el('div', '', `${details.projectType} · ${compactDownloads(details.downloads)} downloads · ${compactDownloads(details.followers)} followers`)); content.append(meta, el('p', 'mod-details-description', details.description || 'No description provided.')); const groups = [['Supported Minecraft', details.gameVersions], ['Loaders', details.loaders], ['Categories', details.categories]]; for (const [label, values] of groups) if (values?.length) { const row = el('div', 'mod-detail-row'); row.append(el('strong', '', label), el('span', '', values.join(' · '))); content.append(row); } if (details.license?.name) content.append(el('div', 'mod-detail-row', `License · ${details.license.name}`)); if (details.body) { content.append(el('strong', 'mod-details-body-heading', 'About this mod')); const body = el('div', 'mod-details-body'); body.innerHTML = markdownToHtml(details.body); body.addEventListener('click', event => { const link = event.target.closest('[data-external-link]'); if (link) { event.preventDefault(); guard(() => api.openModrinth(link.dataset.externalLink)); } }); content.append(body); } const links = el('div', 'mod-detail-links'); for (const [label, url] of [['Issues', details.issuesUrl], ['Source', details.sourceUrl], ['Wiki', details.wikiUrl], ['Discord', details.discordUrl]]) if (url) links.append(button(label, 'quiet small', () => guard(() => api.openModrinth(url)))); if (links.children.length) { content.append(el('strong', '', 'Project links'), links); } }
+async function showModDetails(projectId) { const p = selectedModProfile(); if (!p) return; const dialog = $('#mod-details-dialog'); $('#mod-details-title').textContent = 'Loading…'; $('#mod-details-content').replaceChildren(el('p', 'field-note', 'Loading project details…')); $('#install-from-details').disabled = true; dialog.showModal(); try { const details = await api.modDetails(p.id, projectId); $('#mod-details-title').textContent = details.title; renderModDetails(details); const installed = new Set((modState?.installed || []).map(mod => mod.projectId)); const install = $('#install-from-details'); install.disabled = false; install.textContent = installed.has(projectId) ? 'Reinstall mod' : 'Install mod'; install.onclick = async () => { await runModTask(() => api.installMod(p.id, projectId)); dialog.close(); }; $('#open-modrinth').onclick = () => guard(() => api.openModrinth(details.projectUrl)); } catch (error) { $('#mod-details-content').replaceChildren(el('p', 'field-note', error.message)); } }
+function emptyMods(title, copy) { const node = el('div', 'empty compact'); node.append(el('h3', '', title), el('p', '', copy)); return node; }
+function confirmModRemoval(card, mod) {
+  const actions = card.querySelector('.mod-actions'); actions.replaceChildren(el('small', '', 'Remove this mod?'), button('Keep', 'quiet small', renderMods), button('Remove', 'primary small', async () => { modState = await api.removeMod(selectedModProfile().id, mod.projectId); modUpdates = []; renderMods(); }));
+}
+async function loadModsView() {
+  renderMods(); const p = selectedModProfile(); if (!p) return;
+  const request = ++modRequest; const [value, discovery] = await Promise.all([api.listMods(p.id), api.searchMods(p.id, '', 0)]); if (request !== modRequest) return; modState = value; modSearchState = { ...discovery, query: '', hits: discovery.hits }; modUpdates = []; renderMods();
+}
+async function searchMods(append = false) {
+  const p = selectedModProfile(); if (!p) return;
+  const query = $('#mod-search').value.trim(), offset = append ? modSearchState.hits.length : 0, request = ++modRequest;
+  $('#mod-result-count').textContent = 'Searching…';
+  const result = await api.searchMods(p.id, query, offset); if (request !== modRequest) return;
+  modSearchState = { ...result, query, hits: append ? [...modSearchState.hits, ...result.hits] : result.hits }; renderMods();
+}
+async function runModTask(action) {
+  busy = true; render(); $('#download-panel').hidden = false; $('#cancel-install').disabled = false;
+  try { modState = await action(); modUpdates = []; renderMods(); }
+  finally { busy = false; $('#download-panel').hidden = true; state = await api.state(); render(); renderMods(); }
 }
 
 function renderAccounts() {
@@ -40,7 +115,7 @@ function renderAccounts() {
   $('#sidebar-account').textContent = selected.name;
   $('#account-avatar').textContent = selected.name[0].toUpperCase();
   const picker = $('#active-account'); picker.replaceChildren();
-  for (const a of accountState.accounts) { const option = el('option', '', a.name + (a.type === 'demo' ? ' · Demo' : ' · Microsoft')); option.value = a.id; picker.append(option); }
+  for (const a of accountState.accounts) { const label = a.type === 'demo' ? 'Demo' : a.type === 'local' ? 'Local' : 'Microsoft'; const option = el('option', '', `${a.name} · ${label}`); option.value = a.id; picker.append(option); }
   picker.value = selected.id;
   const locked = busy || running || accountState.pending || loginStarting;
   picker.disabled = locked; $('#add-account').disabled = locked || Boolean(accountState.issue) || !accountState.configured;
@@ -49,9 +124,9 @@ function renderAccounts() {
   const grid = $('#accounts-grid'); grid.replaceChildren();
   for (const a of accountState.accounts) {
     const card = el('article', `profile-card${a.id === selected.id ? ' selected' : ''}`);
-    card.append(el('small', '', a.type === 'demo' ? 'NO ACCOUNT REQUIRED' : 'MICROSOFT ACCOUNT'), el('h3', '', a.name), el('p', '', a.type === 'demo' ? 'Try Minecraft in demo mode.' : 'Minecraft Java Edition'));
+    card.append(el('small', '', a.type === 'demo' ? 'NO ACCOUNT REQUIRED' : a.type === 'local' ? 'LOCAL PROFILE' : 'MICROSOFT ACCOUNT'), el('h3', '', a.name), el('p', '', a.type === 'demo' ? 'Try Minecraft in demo mode.' : a.type === 'local' ? 'Single-player or offline-mode servers.' : 'Minecraft Java Edition'));
     const actions = el('div', 'profile-card-actions');
-    actions.append(button(a.id === selected.id ? 'Selected' : a.type === 'demo' ? 'Choose demo' : 'Use account', a.id === selected.id ? 'quiet' : 'primary', async () => { accountState = await api.selectAccount(a.id); render(); }));
+    actions.append(button(a.id === selected.id ? 'Selected' : a.type === 'demo' ? 'Choose demo' : a.type === 'local' ? 'Use local profile' : 'Use account', a.id === selected.id ? 'quiet' : 'primary', async () => { accountState = await api.selectAccount(a.id); render(); }));
     if (a.type !== 'demo') actions.append(button('Remove', 'quiet', () => {
       actions.replaceChildren(el('small', '', 'Remove saved sign-in? Worlds are kept.'), button('Keep', 'quiet', renderAccounts), button('Remove account', 'primary', async () => { accountState = await api.removeAccount(a.id); render(); }));
     }));
@@ -62,17 +137,22 @@ function renderAccounts() {
 
 function renderVersions() {
   const search = $('#search').value.trim().toLowerCase();
-  const rows = catalog.versions.filter(v => (filter === 'installed' ? installed(v.id) : v.type === filter) && v.id.toLowerCase().includes(search));
+  const modded = filter === 'installed' ? state.installed.filter(v => v.type === 'modded').map(v => ({ ...v, releaseTime: v.installedAt })) : [];
+  const rows = [...catalog.versions.filter(v => (filter === 'installed' ? installed(v.id) : v.type === filter)), ...modded].filter(v => `${v.id} ${v.loader || ''} ${v.loaderVersion || ''}`.toLowerCase().includes(search));
   const list = $('#version-list'); list.replaceChildren();
   if (!rows.length) { const empty = el('div', 'empty'); empty.append(el('h3', '', catalog.versions.length ? 'No versions here yet.' : 'Catalog unavailable'), el('p', '', catalog.versions.length ? 'Try another filter, or install your first version.' : 'Connect to the internet and refresh to load Minecraft versions.')); list.append(empty); }
   for (const v of rows.slice(0, limit)) {
     const item = installed(v.id), row = el('div', 'version-row');
     const name = el('div', 'version-name'), label = el('div');
-    label.append(el('strong', '', v.id), el('small', '', v.id === catalog.latest.release ? 'LATEST RELEASE' : v.id === catalog.latest.snapshot ? 'LATEST SNAPSHOT' : v.type.toUpperCase())); name.append(el('span', 'cube', '◇'), label);
+    label.append(el('strong', '', v.type === 'modded' ? `${loaderNames[v.loader]} ${v.baseVersion} · ${v.loaderVersion}` : v.id), el('small', '', v.id === catalog.latest.release ? 'LATEST RELEASE' : v.id === catalog.latest.snapshot ? 'LATEST SNAPSHOT' : v.type.toUpperCase())); name.append(el('span', 'cube', '◇'), label);
     row.append(name, el('span', 'version-date', new Date(v.releaseTime).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })), el('span', `badge${item ? ' ready' : ''}`, item ? '● Installed' : supported(v) ? 'Available' : 'Legacy · later'));
     const actions = el('div', 'row-actions');
     if (item) {
-      actions.append(button('Repair', 'quiet', () => install(v.id)), button('Use', 'primary', () => openProfile(null, v.id)));
+      if (v.type !== 'modded') actions.append(button('Repair', 'quiet', () => install(v.id)));
+      actions.append(button('Use', 'primary', () => {
+        if (v.type === 'modded') openProfile({ name: `${loaderNames[v.loader]} ${v.baseVersion}`, version: v.baseVersion, loader: v.loader, loaderVersion: v.loaderVersion });
+        else openProfile(null, v.id);
+      }));
       const remove = button('×', 'quiet', async () => { state = await api.removeVersion(v.id); render(); }); remove.title = `Remove ${v.id}`; remove.setAttribute('aria-label', remove.title); actions.append(remove);
     } else { const b = button('↓ Install', 'quiet', () => install(v.id)); b.disabled = !supported(v); if (!supported(v)) b.title = 'Legacy versions are planned for a later release.'; actions.append(b); }
     if (busy || running) actions.querySelectorAll('button').forEach(b => b.disabled = true);
@@ -88,10 +168,11 @@ function renderProfiles() {
     const selected = state.selectedProfile === p.id;
     const card = el('article', `profile-card${selected ? ' selected' : ''}`), top = el('div', 'profile-card-top');
     card.dataset.id = p.id;
-    top.append(el('span', 'stat-icon', '▤'), el('small', '', selected ? 'ACTIVE PROFILE' : 'VANILLA'));
-    card.append(top, el('h3', '', p.name), el('p', '', `Minecraft ${p.version} · ${p.memory} GB RAM`), el('small', '', installed(p.version) ? '● Version installed' : 'Version needs installation'));
+    top.append(el('span', 'stat-icon', '▤'), el('small', '', selected ? 'ACTIVE PROFILE' : loaderNames[p.loader || 'vanilla'].toUpperCase()));
+    card.append(top, el('h3', '', p.name), el('p', '', `${profileLabel(p)} · ${p.memory} GB RAM`), el('small', '', profileInstalled(p) ? '● Profile installed' : 'Profile needs installation'));
     const actions = el('div', 'profile-card-actions');
     actions.append(button(selected ? 'Selected' : 'Select profile', selected ? 'quiet' : 'primary', async () => { state = await api.selectProfile(p.id); render(); }), button('Edit', 'quiet', () => openProfile(p)), button('Delete profile', 'quiet', () => confirmDeleteProfile(p)));
+    if ((p.loader || 'vanilla') !== 'vanilla') actions.append(button('Install / repair', 'quiet', () => installSelectedProfile(p)), button('Mods folder', 'quiet', () => api.openMods(p.id)));
     if (busy || running) actions.querySelectorAll('button').forEach(b => b.disabled = true);
     card.append(actions); grid.append(card);
   }
@@ -119,7 +200,7 @@ async function loadCatalog(refresh = false) {
 function openProfile(profile = null, version = null) {
   if (!catalog.versions.length) return toast('Load the version catalog first.', true);
   $('#profile-id').value = profile?.id || '';
-  $('#dialog-title').textContent = profile ? 'Edit profile' : 'New profile';
+  $('#dialog-title').textContent = profile?.id ? 'Edit profile' : 'New profile';
   $('#profile-name').value = profile?.name || (version ? `Vanilla ${version}` : 'My survival world');
   const select = $('#profile-version'); select.replaceChildren();
   for (const v of catalog.versions.filter(supported)) { const option = el('option', '', `${v.id}${v.type === 'snapshot' ? ' · snapshot' : ''}`); option.value = v.id; select.append(option); }
@@ -129,6 +210,43 @@ function openProfile(profile = null, version = null) {
   $('#profile-error').textContent = '';
   $('#java-check-result').textContent = 'Automatic Java is included; matching older runtimes are installed when needed.';
   $('#profile-dialog').showModal();
+  $('#profile-loader').value = profile?.loader || 'vanilla';
+  loadLoaderVersions(profile?.loaderVersion);
+}
+
+async function loadLoaderVersions(selectedVersion) {
+  const request = ++loaderRequest, loader = $('#profile-loader').value, minecraft = $('#profile-version').value;
+  const select = $('#profile-loader-version'); select.replaceChildren();
+  $('#loader-version-field').hidden = loader === 'vanilla';
+  loaderLoading = loader !== 'vanilla'; $('#save-profile').disabled = loaderLoading;
+  if (loader === 'vanilla') return;
+  $('#loader-note').textContent = 'Loading compatible versions…';
+  try {
+    const versions = await api.loaderVersions(loader, minecraft);
+    if (request !== loaderRequest) return;
+    for (const v of versions) { const option = el('option', '', v.version + (v.stable ? '' : ' · preview')); option.value = v.version; select.append(option); }
+    select.value = versions.some(v => v.version === selectedVersion) ? selectedVersion : (versions.find(v => v.stable) || versions[0])?.version || '';
+    $('#loader-note').textContent = versions.length ? `${loaderNames[loader]} builds for Minecraft ${minecraft}. Add compatible mods to this profile’s mods folder.${loader === 'fabric' ? ' Some mods also need Fabric API.' : ''}` : `No ${loaderNames[loader]} builds are available for Minecraft ${minecraft}. Choose another game version or loader.`;
+  } catch (error) { if (request === loaderRequest) $('#loader-note').textContent = error.message; }
+  finally { if (request === loaderRequest) { loaderLoading = false; $('#save-profile').disabled = !select.value; } }
+}
+$('#profile-loader').addEventListener('change', () => loadLoaderVersions());
+$('#profile-version').addEventListener('change', () => loadLoaderVersions());
+$('#mods-profile').addEventListener('change', () => { modState = null; modSearchState = { query: '', offset: 0, total: 0, hits: [] }; guard(loadModsView); });
+$('#mod-search-form').addEventListener('submit', event => { event.preventDefault(); guard(() => searchMods(false)); });
+$('#more-mods').addEventListener('click', () => guard(() => searchMods(true)));
+$('#close-mod-details').addEventListener('click', () => $('#mod-details-dialog').close());
+$('#mod-details-dialog').addEventListener('cancel', event => { event.preventDefault(); event.currentTarget.close(); });
+$('#mod-details-dialog').addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); });
+$('#open-mods-folder').addEventListener('click', () => guard(() => api.openMods(selectedModProfile().id)));
+$('#mods-create-profile').addEventListener('click', () => openProfile());
+$('#check-mod-updates').addEventListener('click', () => guard(async () => { modUpdates = await api.modUpdates(selectedModProfile().id); renderMods(); if (!modUpdates.length) toast('All managed mods are up to date.'); }));
+$('#update-all-mods').addEventListener('click', () => guard(() => runModTask(() => api.updateAllMods(selectedModProfile().id))));
+
+async function installSelectedProfile(p) {
+  busy = true; render(); $('#download-panel').hidden = false; $('#cancel-install').disabled = false;
+  try { state = await api.installProfile(p.id); toast(`${profileLabel(p)} is ready.`); }
+  finally { busy = false; $('#download-panel').hidden = true; state = await api.state(); render(); }
 }
 
 async function install(id) {
@@ -148,13 +266,14 @@ $('#search').addEventListener('input', () => { limit = 40; renderVersions(); });
 $('#load-more').addEventListener('click', () => { limit += 40; renderVersions(); });
 $('#refresh').addEventListener('click', () => guard(() => loadCatalog(true)));
 $('#open-folder').addEventListener('click', () => guard(() => api.openFolder()));
+$('#check-updates').addEventListener('click', () => guard(async () => { const result = await api.checkUpdates(); if (!result.available) return toast(`Blocklane ${result.current} is up to date.`); const button = $('#check-updates'); button.textContent = `Download ${result.latest}`; button.className = 'primary small'; button.onclick = () => guard(() => api.openUpdate(result.installerUrl || result.releaseUrl)); toast(`Blocklane ${result.latest} is available.`); }));
 $('#new-profile').addEventListener('click', () => openProfile());
 $('#edit-active').addEventListener('click', () => openProfile(currentProfile()));
 $('#active-profile').addEventListener('change', () => guard(async () => { state = await api.selectProfile($('#active-profile').value); render(); }));
 $('#play-button').addEventListener('click', () => guard(async () => {
   const p = currentProfile();
   if (!p) return openProfile();
-  if (!installed(p.version)) return install(p.version);
+  if (!profileInstalled(p)) return installSelectedProfile(p);
   busy = true; render(); $('#play-button').textContent = 'Starting…';
   $('#download-panel').hidden = false; $('#download-title').textContent = 'Preparing Java'; $('#download-count').textContent = 'Checking the matching runtime…'; $('#download-progress').value = 0; $('#cancel-install').disabled = false;
   try { await api.launch(p.id); running = (await api.state()).running; log(`Minecraft ${p.version} launched ${accountState.selected === 'demo' ? 'in demo mode' : 'with your Microsoft account'}.`); }
@@ -164,8 +283,9 @@ $('#cancel-install').addEventListener('click', () => guard(async () => { await a
 $('#clear-log').addEventListener('click', () => $('#log').textContent = 'Activity view cleared. Game logs remain in the launcher folder.\n');
 for (const selector of ['#close-dialog', '#cancel-dialog']) $(selector).addEventListener('click', () => $('#profile-dialog').close());
 $('#profile-form').addEventListener('submit', async event => {
+  if (loaderLoading) { event.preventDefault(); return; }
   event.preventDefault(); $('#save-profile').disabled = true; $('#profile-error').textContent = '';
-  try { state = await api.saveProfile({ id: $('#profile-id').value || undefined, name: $('#profile-name').value, version: $('#profile-version').value, memory: Number($('#profile-memory').value), javaPath: $('#profile-java').value }); $('#profile-dialog').close(); render(); toast('Profile saved.'); }
+  try { state = await api.saveProfile({ id: $('#profile-id').value || undefined, name: $('#profile-name').value, version: $('#profile-version').value, memory: Number($('#profile-memory').value), javaPath: $('#profile-java').value, loader: $('#profile-loader').value, loaderVersion: $('#profile-loader-version').value }); $('#profile-dialog').close(); render(); toast('Profile saved.'); }
   catch (error) { $('#profile-error').textContent = error.message; }
   finally { $('#save-profile').disabled = false; }
 });
@@ -198,6 +318,10 @@ $('#add-account').addEventListener('click', () => guard(async () => {
   } finally { loginStarting = false; render(); }
 }));
 $('#open-login').addEventListener('click', () => guard(() => api.openLogin()));
+$('#add-local-account').addEventListener('click', () => { $('#local-name').value = ''; $('#local-error').textContent = ''; $('#local-dialog').showModal(); $('#local-name').focus(); });
+$('#close-local').addEventListener('click', () => $('#local-dialog').close());
+$('#cancel-local').addEventListener('click', () => $('#local-dialog').close());
+$('#local-form').addEventListener('submit', event => guard(async () => { event.preventDefault(); try { accountState = await api.createLocalAccount($('#local-name').value); $('#local-dialog').close(); render(); toast('Local profile created.'); } catch (error) { $('#local-error').textContent = error.message; } }));
 $('#copy-code').addEventListener('click', () => guard(async () => { await navigator.clipboard.writeText($('#login-code').textContent); toast('Sign-in code copied.'); }));
 $('#cancel-login').addEventListener('click', () => guard(async () => { await api.cancelLogin(); $('#login-status').textContent = 'Cancelling…'; }));
 $('#login-dialog').addEventListener('cancel', event => { event.preventDefault(); guard(() => api.cancelLogin()); });
@@ -210,3 +334,10 @@ async function boot() {
   await guard(() => loadCatalog());
 }
 guard(boot);
+
+
+
+
+
+
+

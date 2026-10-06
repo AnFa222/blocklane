@@ -11,6 +11,10 @@ const { pipeline } = require('node:stream/promises');
 const { spawn, execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const yauzl = require('yauzl');
+const { gameEnvironment, jvmMemoryArgs, withoutHeapArgs, liveLogBatch } = require('./launch-policy');
+const launcherVersion = require('../package.json').version;
+const loaders = require('./loaders');
+const mods = require('./mods');
 
 const MANIFEST = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json';
 const exec = promisify(execFile);
@@ -73,7 +77,7 @@ async function readJson(file, fallback) {
 
 function trustedUrl(value) {
   const url = new URL(value);
-  if (url.protocol !== 'https:' || !['piston-meta.mojang.com', 'piston-data.mojang.com', 'launchermeta.mojang.com', 'launcher.mojang.com', 'resources.download.minecraft.net', 'libraries.minecraft.net'].includes(url.hostname)) throw new Error('Untrusted download host.');
+  if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443') || !['piston-meta.mojang.com', 'piston-data.mojang.com', 'launchermeta.mojang.com', 'launcher.mojang.com', 'resources.download.minecraft.net', 'libraries.minecraft.net', 'meta.fabricmc.net', 'maven.fabricmc.net', 'maven.minecraftforge.net', 'maven.neoforged.net', 'api.modrinth.com', 'cdn.modrinth.com'].includes(url.hostname)) throw new Error('Untrusted download host.');
   return url;
 }
 
@@ -89,11 +93,15 @@ async function response(url, signal) {
 }
 
 async function remoteJson(url, signal) {
+  return JSON.parse(await remoteText(url, signal));
+}
+
+async function remoteText(url, signal) {
   return network.withRetries(async () => {
     const stream = await response(url, signal);
     const chunks = [];
     for await (const chunk of stream) chunks.push(Buffer.from(chunk));
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    return Buffer.concat(chunks).toString('utf8');
   }, signal);
 }
 
@@ -175,7 +183,7 @@ function validateProfile(input) {
   validId(input.version);
   if (!Number.isInteger(input.memory) || input.memory < 1 || input.memory > 32) throw new Error('Memory must be between 1 and 32 GB.');
   if (typeof input.javaPath !== 'string' || input.javaPath.length > 1024 || input.javaPath.includes('\0')) throw new Error('Invalid Java path.');
-  return { id: input.id ? validId(input.id) : crypto.randomUUID(), name: input.name.trim(), version: input.version, memory: input.memory, javaPath: input.javaPath.trim() || 'auto' };
+  return { id: input.id ? validId(input.id) : crypto.randomUUID(), name: input.name.trim(), version: input.version, memory: input.memory, javaPath: input.javaPath.trim() || 'auto', ...loaders.loaderSettings(input) };
 }
 
 async function inspectJava(executable = 'java') {
@@ -192,6 +200,7 @@ async function inspectJava(executable = 'java') {
 
 function launchIdentity(session) {
   if (session.demo) return { ...DEMO };
+  if (session.local && /^[a-f0-9]{32}$/i.test(session.uuid) && /^[A-Za-z0-9_]{1,16}$/.test(session.name)) return session;
   if (!/^[a-f0-9]{32}$/i.test(session.uuid) || !session.accessToken || session.accessToken === '0' || !(session.expiresAt > Date.now())) throw new Error('A valid Microsoft Minecraft session is required. Sign in again or choose Demo.');
   return session;
 }
@@ -246,9 +255,11 @@ class Launcher {
     }
   }
   async saveProfile(input) {
+    if (this.busy || this.child) throw new Error('Wait for the installation or game to finish before editing profiles.');
     const profile = validateProfile(input);
     const catalog = await this.catalog();
     if (!catalog.versions.some(v => v.id === profile.version)) throw new Error('Choose a version from the official catalog.');
+    if (profile.loader !== 'vanilla' && !(await this.loaderVersions(profile.loader, profile.version)).some(v => v.version === profile.loaderVersion)) throw new Error('Choose a compatible loader version from the list.');
     if (input.id && !this.state.profiles.some(p => p.id === profile.id)) throw new Error('Profile does not exist.');
     const index = this.state.profiles.findIndex(p => p.id === profile.id);
     if (index < 0) this.state.profiles.push(profile); else this.state.profiles[index] = profile;
@@ -268,6 +279,62 @@ class Launcher {
   }
   progress(message, done = 0, total = 1) { this.emit('progress', { message, done, total }); }
   cancel() { this.controller?.abort(new Error('Installation cancelled. Downloaded files are kept for retry.')); }
+  loaderIO() { return { allowed, trustedUrl, validId, safePath, readJson, atomicJson, hashFile, download, remoteJson, remoteText }; }
+  async loaderVersions(loader, version) {
+    validId(version);
+    return loaders.versions(loader, version, this.loaderIO());
+  }
+  async installProfile(profileId) {
+    if (this.busy || this.child) throw new Error('Wait for the current operation to finish.');
+    const profile = this.state.profiles.find(p => p.id === profileId);
+    if (!profile) throw new Error('Choose a profile first.');
+    await this.install(profile.version);
+    if ((profile.loader || 'vanilla') === 'vanilla') return this.snapshot();
+    this.busy = true; this.controller = new AbortController();
+    const signal = this.controller.signal;
+    try {
+      const id = loaders.profileVersionId(profile); validId(id);
+      await fs.rm(path.join(this.root, 'versions', id, 'installed.json'), { force: true });
+      const base = await readJson(path.join(this.root, 'versions', profile.version, `${profile.version}.json`));
+      const javaPath = await this.ensureJava(base, signal);
+      await loaders.install(profile, this.root, base, javaPath, this.loaderIO(), signal, (message, done, total) => this.progress(message, done, total));
+    } finally { this.busy = false; this.controller = null; }
+    return this.snapshot();
+  }
+  modProfile(profileId) {
+    const profile = this.state.profiles.find(p => p.id === profileId);
+    if (!profile) throw new Error('Profile does not exist.');
+    mods.profileLoader(profile);
+    return profile;
+  }
+  modsDir(profile) { return path.join(this.root, 'instances', profile.id, 'mods'); }
+  async modSearch(profileId, query = '', offset = 0) { const p = this.modProfile(profileId); return mods.search(p, query, offset, this.loaderIO()); }
+  async modDetails(profileId, projectId) { const p = this.modProfile(profileId); return mods.project(projectId, this.loaderIO()); }
+  async modList(profileId) { const p = this.modProfile(profileId); return mods.list(p, this.modsDir(p), this.loaderIO()); }
+  async modInstall(profileId, projectId) {
+    if (this.busy || this.child) throw new Error('Wait for the current operation or game to finish.');
+    const p = this.modProfile(profileId); this.busy = true; this.controller = new AbortController();
+    try { await mods.installProject(p, projectId, this.modsDir(p), this.loaderIO(), this.controller.signal, message => this.progress(message)); }
+    finally { this.busy = false; this.controller = null; }
+    return this.modList(profileId);
+  }
+  async modEnable(profileId, projectId, enabled) {
+    if (this.busy || this.child) throw new Error('Wait for the current operation or game to finish.');
+    const p = this.modProfile(profileId); return mods.setEnabled(p, this.modsDir(p), projectId, Boolean(enabled), this.loaderIO());
+  }
+  async modRemove(profileId, projectId) {
+    if (this.busy || this.child) throw new Error('Wait for the current operation or game to finish.');
+    const p = this.modProfile(profileId); return mods.remove(p, this.modsDir(p), projectId, this.loaderIO());
+  }
+  async modUpdates(profileId) { const p = this.modProfile(profileId); return mods.updates(p, this.modsDir(p), this.loaderIO()); }
+  async modUpdateAll(profileId) {
+    if (this.busy || this.child) throw new Error('Wait for the current operation or game to finish.');
+    const p = this.modProfile(profileId), available = await mods.updates(p, this.modsDir(p), this.loaderIO());
+    this.busy = true; this.controller = new AbortController();
+    try { for (const update of available) await mods.installProject(p, update.projectId, this.modsDir(p), this.loaderIO(), this.controller.signal, message => this.progress(message)); }
+    finally { this.busy = false; this.controller = null; }
+    return this.modList(profileId);
+  }
   async ensureJava(meta, signal) {
     return ensureRuntime(meta, path.join(this.root, 'runtimes'), path.join(__dirname, '..', 'runtimes'),
       { safePath, readJson, hashFile, inspectJava, remoteJson, download, pool, atomicJson }, signal,
@@ -336,10 +403,13 @@ class Launcher {
     this.busy = true;
     this.controller = new AbortController();
     try {
-      const dir = path.join(this.root, 'versions', p.version);
+      const launchId = loaders.profileVersionId(p);
+      const dir = path.join(this.root, 'versions', launchId);
       const installed = await readJson(path.join(dir, 'installed.json'), null);
       if (!installed) throw new Error('Install this profile’s version first.');
-      const meta = await readJson(path.join(dir, `${p.version}.json`));
+      const meta = await readJson(path.join(dir, `${launchId}.json`));
+      const baseVersion = meta.baseVersion || p.version;
+      const baseDir = path.join(this.root, 'versions', baseVersion);
       this.progress('Preparing account', 0, 1);
       if (!this.authenticate && accountId !== 'demo') throw new Error('Microsoft sign-in is not configured.');
       const identity = launchIdentity(this.authenticate ? await this.authenticate(accountId, this.controller.signal) : DEMO);
@@ -350,36 +420,39 @@ class Launcher {
       if (java.major !== required) throw new Error(`${p.version} expects Java ${required}; your profile uses Java ${java.major}. Set the profile’s Java runtime to auto, or select a Java ${required} java.exe.`);
       if (!['amd64', 'x86_64'].includes(java.arch)) throw new Error('This release requires 64-bit x86 Java on Windows.');
       const plan = libraryPlan(meta, this.root);
-      const classpath = [...plan.artifacts.map(a => a.dest), path.join(dir, `${p.version}.jar`)];
+      const classpath = [...new Set([...plan.artifacts.map(a => a.dest), path.join(baseDir, `${baseVersion}.jar`)])];
       for (const file of classpath) await fs.access(file).catch(() => { throw new Error('Game files are missing. Repair the version in the Versions tab.'); });
       const gameDir = path.join(this.root, 'instances', p.id);
       await fs.mkdir(gameDir, { recursive: true });
       const values = {
-        natives_directory: path.join(dir, 'natives'), launcher_name: 'Blocklane', launcher_version: '0.2.1',
+        natives_directory: path.join(baseDir, 'natives'), launcher_name: 'Blocklane', launcher_version: launcherVersion,
         classpath: classpath.join(path.delimiter), classpath_separator: path.delimiter, library_directory: path.join(this.root, 'libraries'),
-        auth_player_name: identity.name, version_name: p.version, game_directory: gameDir, assets_root: path.join(this.root, 'assets'),
+        auth_player_name: identity.name, version_name: launchId, game_directory: gameDir, assets_root: path.join(this.root, 'assets'),
         assets_index_name: meta.assetIndex.id, auth_uuid: identity.uuid, auth_access_token: identity.accessToken,
         clientid: identity.clientId, auth_xuid: identity.xuid, user_type: 'msa', version_type: meta.type, user_properties: '{}',
         resolution_width: '1280', resolution_height: '720'
       };
       const features = { is_demo_user: identity.demo, has_custom_resolution: true };
-      const jvm = expandArgs(meta.arguments.jvm, values, features);
+      const jvm = withoutHeapArgs(expandArgs(meta.arguments.jvm, values, features));
       if (meta.logging?.client) jvm.push(meta.logging.client.argument.replace('${path}', safePath(path.join(this.root, 'assets', 'log_configs'), meta.logging.client.file.id)));
       const game = expandArgs(meta.arguments.game, values, features);
       if (identity.demo && !game.includes('--demo')) game.push('--demo');
-      const args = ['-Xms512M', `-Xmx${p.memory}G`, ...jvm, meta.mainClass, ...game];
+      const args = [...jvmMemoryArgs(p.memory), ...jvm, meta.mainClass, ...game];
       const logDir = path.join(this.root, 'logs');
       await fs.mkdir(logDir, { recursive: true });
       const log = createWriteStream(path.join(logDir, 'latest-launch.log'));
       log.on('error', () => {});
-      const child = spawn(javaPath, args, { cwd: gameDir, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      const child = spawn(javaPath, args, { cwd: gameDir, windowsHide: true, env: gameEnvironment(), stdio: ['ignore', 'pipe', 'pipe'] });
       this.child = child;
       const stdout = child.stdout.pipe(redactStream(identity.accessToken));
       const stderr = child.stderr.pipe(redactStream(identity.accessToken));
       stdout.pipe(log, { end: false }); stderr.pipe(log, { end: false });
-      const line = data => this.emit('log', data.toString().slice(-4000));
-      stdout.on('data', line); stderr.on('data', line);
-      child.on('close', code => { log.end(); this.child = null; this.emit('game-exit', { code }); });
+      // Game output is written losslessly to disk above. Keep renderer updates
+      // sparse and small so a verbose vanilla client cannot compete with the
+      // game for the main process event loop.
+      const liveLog = liveLogBatch(text => this.emit('log', text), 1000, 4096);
+      stdout.on('data', liveLog.push); stderr.on('data', liveLog.push);
+      child.on('close', code => { liveLog.flush(); log.end(); this.child = null; this.emit('game-exit', { code }); });
       await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
       this.emit('game-start', { version: p.version });
       return { launched: true };
@@ -388,3 +461,4 @@ class Launcher {
 }
 
 module.exports = { Launcher, allowed, expandArgs, safePath, validId, validateProfile, libraryPlan, inspectJava, download, pool, atomicJson, readJson, trustedUrl, extractNatives, host, hashFile, remoteJson, launchIdentity, redactStream };
+
