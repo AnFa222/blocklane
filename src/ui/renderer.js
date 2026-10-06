@@ -291,10 +291,14 @@ $('#new-profile').addEventListener('click', () => openProfile());
 $('#backups-profile').addEventListener('change', () => guard(loadBackups));
 $('#screenshots-profile').addEventListener('change', () => guard(loadScreenshots));
 $('#servers-profile').addEventListener('change', () => guard(loadServers));
-$('#create-backup').addEventListener('click', () => guard(async () => { const name = window.prompt('Name this backup', 'World backup'); if (name == null) return; await api.backupProfile($('#backups-profile').value, name); await loadBackups(); toast('World backup created.'); }));
+$('#create-backup').addEventListener('click', () => { $('#backup-name').value = 'World backup'; $('#backup-error').textContent = ''; $('#backup-dialog').showModal(); $('#backup-name').focus(); });
+for (const selector of ['#close-backup', '#cancel-backup']) $(selector).addEventListener('click', () => $('#backup-dialog').close());
+$('#backup-form').addEventListener('submit', event => { event.preventDefault(); guard(async () => { const name = $('#backup-name').value.trim(); if (!name) throw new Error('Enter a backup name.'); await api.backupProfile($('#backups-profile').value, name); $('#backup-dialog').close(); await loadBackups(); toast('World backup created.'); }).catch(error => { $('#backup-error').textContent = error.message; }); });
 $('#open-backups-folder').addEventListener('click', () => guard(() => api.openBackups($('#backups-profile').value)));
 $('#open-screenshots-folder').addEventListener('click', () => guard(() => api.openScreenshots($('#screenshots-profile').value)));
-$('#add-server').addEventListener('click', () => guard(async () => { const name = window.prompt('Server name'); if (!name) return; const address = window.prompt('Server address'); if (!address) return; const id = $('#servers-profile').value, servers = await api.profileServers(id); await api.profileServers(id, [...servers, { name, address }]); await loadServers(); }));
+$('#add-server').addEventListener('click', () => { $('#server-name').value = ''; $('#server-address').value = ''; $('#server-error').textContent = ''; $('#server-dialog').showModal(); $('#server-name').focus(); });
+for (const selector of ['#close-server', '#cancel-server']) $(selector).addEventListener('click', () => $('#server-dialog').close());
+$('#server-form').addEventListener('submit', event => { event.preventDefault(); guard(async () => { const name = $('#server-name').value.trim(), address = $('#server-address').value.trim(); if (!name || !address) throw new Error('Enter a server name and address.'); const id = $('#servers-profile').value, servers = await api.profileServers(id); await api.profileServers(id, [...servers, { name, address }]); $('#server-dialog').close(); await loadServers(); toast('Server saved.'); }).catch(error => { $('#server-error').textContent = error.message; }); });
 $('#edit-active').addEventListener('click', () => openProfile(currentProfile()));
 $('#active-profile').addEventListener('change', () => guard(async () => { state = await api.selectProfile($('#active-profile').value); render(); }));
 $('#play-button').addEventListener('click', () => guard(async () => {
