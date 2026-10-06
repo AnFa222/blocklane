@@ -2,12 +2,13 @@
 // can throw an uncaught assert(!this.paused) when a download socket closes.
 const https = require('node:https');
 const { setTimeout: sleep } = require('node:timers/promises');
+const launcherVersion = require('../package.json').version;
 
 function open(url, signal, get = https.get) {
   signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
     let timer;
-    const request = get(url, { signal, agent: false, headers: { 'User-Agent': 'Blocklane/0.2.1', 'Accept-Encoding': 'identity' } }, response => {
+    const request = get(url, { signal, agent: false, headers: { 'User-Agent': `Blocklane/${launcherVersion} (https://github.com/AnFa222/blocklane)`, 'Accept-Encoding': 'identity' } }, response => {
       // Keep errors handled while the caller connects its pipeline.
       response.on('error', () => {});
       response.once('close', () => clearTimeout(timer));

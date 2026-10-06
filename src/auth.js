@@ -4,7 +4,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { setTimeout: sleep } = require('node:timers/promises');
 const BASE = 'https://login.microsoftonline.com/consumers/oauth2/v2.0';
-const URLS = { device: `${BASE}/devicecode`, token: `${BASE}/token`, xbox: 'https://user.auth.xboxlive.com/user/authenticate', xsts: 'https://xsts.auth.xboxlive.com/xsts/authorize', minecraft: 'https://api.minecraftservices.com/authentication/login_with_xbox', entitlements: 'https://api.minecraftservices.com/entitlements/mcstore', profile: 'https://api.minecraftservices.com/minecraft/profile' };
+const URLS = { device: `${BASE}/devicecode`, token: `${BASE}/token`, xbox: 'https://user.auth.xboxlive.com/user/authenticate', xsts: 'https://xsts.auth.xboxlive.com/xsts/authorize', minecraft: 'https://api.minecraftservices.com/authentication/login_with_xbox', entitlements: 'https://api.minecraftservices.com/entitlements/mcstore', profile: 'https://api.minecraftservices.com/minecraft/profile', skins: 'https://api.minecraftservices.com/minecraft/profile/skins' };
 const SCOPE = 'XboxLive.signin offline_access';
 const DEMO = Object.freeze({ id: 'demo', name: 'Player', demo: true, uuid: '00000000000000000000000000000000', accessToken: '0', xuid: '', clientId: '' });
 function clientId(value) {
@@ -23,7 +23,7 @@ function authError(status, data = {}, url) {
   const xboxErrors = { 2148916233: 'Set up an Xbox profile for this Microsoft account, then try again.', 2148916238: 'This Xbox account needs family or age-related permissions before it can sign in.' };
   const e = new Error(messages[data.error] || xboxErrors[data.XErr] || (status === 403 ? 'The service denied access. The launcher application may need Xbox/Minecraft API approval, or this account may have access restrictions.' : `Microsoft/Xbox/Minecraft sign-in failed (HTTP ${status}). Please try again.`));
   e.code = ['authorization_pending', 'slow_down', 'invalid_grant', 'expired_token', 'access_denied', 'authorization_declined'].includes(data.error) ? data.error : 'AUTH_ERROR';
-  const stage = { [URLS.device]: 'Microsoft device code', [URLS.token]: 'Microsoft token', [URLS.xbox]: 'Xbox sign-in', [URLS.xsts]: 'Xbox authorization (XSTS)', [URLS.minecraft]: 'Minecraft sign-in', [URLS.entitlements]: 'Minecraft ownership check', [URLS.profile]: 'Minecraft profile' }[url];
+  const stage = { [URLS.device]: 'Microsoft device code', [URLS.token]: 'Microsoft token', [URLS.xbox]: 'Xbox sign-in', [URLS.xsts]: 'Xbox authorization (XSTS)', [URLS.minecraft]: 'Minecraft sign-in', [URLS.entitlements]: 'Minecraft ownership check', [URLS.profile]: 'Minecraft profile', [URLS.skins]: 'Minecraft skin update' }[url];
   if (stage) {
     const xerr = Number.isSafeInteger(data.XErr) ? `; Xbox code ${data.XErr}` : '';
     e.message = `${stage} failed (HTTP ${status}${xerr}). ${e.message}`;
@@ -34,15 +34,15 @@ function authError(status, data = {}, url) {
 // Authentication uses native HTTPS as well, without the failing fetch parser.
 function request(url, options = {}) {
   if (!Object.values(URLS).includes(url)) return Promise.reject(new Error('Unsupported authentication endpoint.'));
-  const { form, json, token, signal } = options;
-  const body = form ? new URLSearchParams(form).toString() : json ? JSON.stringify(json) : null;
+  const { form, json, raw, token, signal } = options;
+  const body = raw || (form ? new URLSearchParams(form).toString() : json ? JSON.stringify(json) : null);
   const headers = { Accept: 'application/json' };
   if (url === URLS.xbox || url === URLS.xsts) headers['x-xbl-contract-version'] = '1';
-  if (body) { headers['Content-Type'] = form ? 'application/x-www-form-urlencoded' : 'application/json'; headers['Content-Length'] = Buffer.byteLength(body); }
+  if (body) { headers['Content-Type'] = options.contentType || (form ? 'application/x-www-form-urlencoded' : 'application/json'); headers['Content-Length'] = Buffer.byteLength(body); }
   if (token) headers.Authorization = `Bearer ${token}`;
   return new Promise((resolve, reject) => {
     let timer;
-    const req = https.request(url, { method: body ? 'POST' : 'GET', headers, signal, agent: false }, res => {
+    const req = https.request(url, { method: options.method || (body ? 'POST' : 'GET'), headers, signal, agent: false }, res => {
       const chunks = []; let size = 0;
       res.on('data', chunk => { size += chunk.length; if (size > 1024 * 1024) res.destroy(new Error('Authentication response was too large.')); else chunks.push(chunk); });
       res.on('error', reject);
@@ -62,7 +62,7 @@ function request(url, options = {}) {
 
 class Accounts {
   constructor(root, secureStorage, options = {}) {
-    this.file = path.join(root, 'accounts.enc'); this.secure = secureStorage;
+    this.root = root; this.file = path.join(root, 'accounts.enc'); this.secure = secureStorage;
     this.applicationClientId = options.clientId || '';
     this.request = options.request || request; this.wait = options.wait || sleep; this.now = options.now || Date.now;
     this.data = { clientId: options.clientId || '', selected: 'demo', accounts: [] };
@@ -82,7 +82,7 @@ class Accounts {
   }
   list() {
     return { selected: this.data.selected, configured: Boolean(this.data.clientId), pending: Boolean(this.pending), issue: this.issue,
-      accounts: [{ id: 'demo', name: 'Demo player', type: 'demo' }, ...this.data.accounts.map(a => ({ id: a.id, name: a.name, type: 'microsoft' }))] };
+      accounts: [{ id: 'demo', name: 'Demo player', type: 'demo' }, ...this.data.accounts.map(a => ({ id: a.id, name: a.name, type: a.type === 'local' ? 'local' : 'microsoft' }))] };
   }
   async persist() {
     if (this.issue) throw new Error(this.issue);
@@ -110,6 +110,91 @@ class Accounts {
     if (id === 'demo') throw new Error('Demo is always available.');
     const result = await this.change(() => { this.data.accounts = this.data.accounts.filter(a => a.id !== id); if (this.data.selected === id) this.data.selected = 'demo'; });
     this.sessions.delete(id); return result;
+  }
+  async createLocal(name) {
+    if (typeof name !== 'string' || !/^[A-Za-z0-9_]{1,16}$/.test(name.trim())) throw new Error('Local names must be 1–16 letters, numbers, or underscores.');
+    const account = { id: crypto.randomUUID().replace(/-/g, ''), name: name.trim(), type: 'local' };
+    return this.change(() => { this.data.accounts = [...this.data.accounts.filter(a => a.type !== 'local' || a.name !== account.name), account]; this.data.selected = account.id; });
+  }
+  account(id) { const account = this.data.accounts.find(value => value.id === id); if (!account) throw new Error('Account not found.'); return account; }
+  skinName(value) {
+    const name = typeof value === 'string' ? value.trim() : '';
+    if (!name || name.length > 50 || /[\u0000-\u001f]/.test(name)) throw new Error('Skin names must be 1–50 characters.');
+    return name;
+  }
+  async skinBytes(filename) {
+    const bytes = await fs.readFile(filename);
+    if (bytes.length > 1024 * 1024 || bytes.length < 24 || bytes.toString('hex', 0, 8) !== '89504e470d0a1a0a') throw new Error('Choose a valid PNG skin under 1 MB.');
+    const width = bytes.readUInt32BE(16), height = bytes.readUInt32BE(20);
+    if (width !== 64 || ![32, 64].includes(height)) throw new Error('Minecraft skins must be 64×64 or legacy 64×32 PNG files.');
+    return bytes;
+  }
+  libraryPath(id) {
+    if (!/^[a-f0-9]{32}$/i.test(id)) throw new Error('Invalid saved skin.');
+    return path.join(this.root, 'skins', 'library', `${id}.png`);
+  }
+  async readSkinLibrary() {
+    try {
+      const saved = JSON.parse(await fs.readFile(path.join(this.root, 'skins', 'library.json'), 'utf8'));
+      if (!Array.isArray(saved)) throw new Error('Invalid skin library.');
+      return saved.filter(item => item && /^[a-f0-9]{32}$/i.test(item.id) && typeof item.name === 'string' && ['classic', 'slim'].includes(item.variant));
+    } catch (error) { if (error.code === 'ENOENT') return []; throw new Error('The saved skin library could not be read.'); }
+  }
+  async writeSkinLibrary(items) {
+    const folder = path.join(this.root, 'skins'); await fs.mkdir(folder, { recursive: true });
+    const file = path.join(folder, 'library.json'), temp = `${file}.${crypto.randomUUID()}.tmp`;
+    try { await fs.writeFile(temp, JSON.stringify(items, null, 2)); await fs.rename(temp, file); }
+    finally { await fs.rm(temp, { force: true }); }
+  }
+  async skins() {
+    const items = await this.readSkinLibrary(), result = [];
+    for (const item of items) {
+      const bytes = await fs.readFile(this.libraryPath(item.id)).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+      if (bytes) result.push({ ...item, url: `data:image/png;base64,${bytes.toString('base64')}` });
+    }
+    return result;
+  }
+  async importSkin(filename, name, variant) {
+    name = this.skinName(name); if (!['classic', 'slim'].includes(variant)) throw new Error('Choose Classic or Slim arms.');
+    const bytes = await this.skinBytes(filename), id = crypto.randomUUID().replace(/-/g, ''), file = this.libraryPath(id);
+    const items = await this.readSkinLibrary(), item = { id, name, variant, createdAt: new Date(this.now()).toISOString() };
+    await fs.mkdir(path.dirname(file), { recursive: true }); await fs.writeFile(file, bytes);
+    try { await this.writeSkinLibrary([item, ...items]); } catch (error) { await fs.rm(file, { force: true }); throw error; }
+    return { ...item, url: `data:image/png;base64,${bytes.toString('base64')}` };
+  }
+  async renameSkin(id, name) {
+    name = this.skinName(name); const items = await this.readSkinLibrary(), item = items.find(value => value.id === id);
+    if (!item) throw new Error('Saved skin not found.'); item.name = name; await this.writeSkinLibrary(items); return this.skins();
+  }
+  async deleteSkin(id) {
+    const items = await this.readSkinLibrary(); if (!items.some(value => value.id === id)) throw new Error('Saved skin not found.');
+    await this.writeSkinLibrary(items.filter(value => value.id !== id)); await fs.rm(this.libraryPath(id), { force: true }); return this.skins();
+  }
+  async applySkin(accountId, skinId, signal) {
+    const items = await this.readSkinLibrary(), item = items.find(value => value.id === skinId); if (!item) throw new Error('Saved skin not found.');
+    return this.setSkin(accountId, this.libraryPath(item.id), item.variant, signal);
+  }
+  async skin(id, signal) {
+    const account = this.account(id);
+    if (account.type === 'local') {
+      const file = path.join(this.root, 'skins', `${account.id}.png`);
+      const bytes = await fs.readFile(file).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+      return { accountId: id, type: 'local', variant: account.skinVariant || 'classic', url: bytes ? `data:image/png;base64,${bytes.toString('base64')}` : null };
+    }
+    const session = await this.session(id, signal), profile = await this.request(URLS.profile, { token: session.accessToken, signal });
+    const skin = Array.isArray(profile.skins) ? profile.skins.find(value => value.state === 'ACTIVE') || profile.skins[0] : null;
+    return { accountId: id, type: 'microsoft', variant: skin?.variant === 'SLIM' ? 'slim' : 'classic', url: typeof skin?.url === 'string' ? skin.url : null };
+  }
+  async setSkin(id, filename, variant, signal) {
+    const account = this.account(id); if (!['classic', 'slim'].includes(variant)) throw new Error('Choose Classic or Slim arms.');
+    const bytes = await this.skinBytes(filename);
+    if (account.type === 'local') {
+      await fs.mkdir(path.join(this.root, 'skins'), { recursive: true }); await fs.writeFile(path.join(this.root, 'skins', `${account.id}.png`), bytes);
+      await this.change(() => { this.account(id).skinVariant = variant; }); return this.skin(id, signal);
+    }
+    const session = await this.session(id, signal), boundary = `----Blocklane${crypto.randomBytes(12).toString('hex')}`;
+    const raw = Buffer.concat([Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="variant"\r\n\r\n${variant}\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="skin.png"\r\nContent-Type: image/png\r\n\r\n`), bytes, Buffer.from(`\r\n--${boundary}--\r\n`)]);
+    await this.request(URLS.skins, { raw, contentType: `multipart/form-data; boundary=${boundary}`, token: session.accessToken, signal }); return this.skin(id, signal);
   }
   async begin() {
     if (this.pending || this.locked) throw new Error('A sign-in is already in progress.');
@@ -171,6 +256,7 @@ class Accounts {
     if (this.locked || this.pending) throw new Error('Finish or cancel sign-in before launching.');
     const account = this.data.accounts.find(a => a.id === id);
     if (!account) throw new Error('Select a saved Microsoft account or Demo.');
+    if (account.type === 'local') return { local: true, demo: false, uuid: account.id, name: account.name, accessToken: '0', xuid: '', clientId: '', expiresAt: Infinity };
     const cached = this.sessions.get(id);
     if (cached && cached.expiresAt > this.now() + 60000) return cached;
     this.locked = true;
