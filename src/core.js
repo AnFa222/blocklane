@@ -185,7 +185,9 @@ function validateProfile(input) {
   validId(input.version);
   if (!Number.isInteger(input.memory) || input.memory < 1 || input.memory > 32) throw new Error('Memory must be between 1 and 32 GB.');
   if (typeof input.javaPath !== 'string' || input.javaPath.length > 1024 || input.javaPath.includes('\0')) throw new Error('Invalid Java path.');
-  return { id: input.id ? validId(input.id) : crypto.randomUUID(), name: input.name.trim(), version: input.version, memory: input.memory, javaPath: input.javaPath.trim() || 'auto', ...loaders.loaderSettings(input) };
+  const javaArgs = Array.isArray(input.javaArgs) ? input.javaArgs : [];
+  if (javaArgs.length > 40 || javaArgs.some(arg => typeof arg !== 'string' || !arg || arg.length > 500 || /[\0\r\n]/.test(arg) || !arg.startsWith('-') || /^-Xm[ sx]/i.test(arg))) throw new Error('Invalid Java arguments. Enter one non-memory JVM argument per line.');
+  return { id: input.id ? validId(input.id) : crypto.randomUUID(), name: input.name.trim(), version: input.version, memory: input.memory, javaPath: input.javaPath.trim() || 'auto', javaArgs, ...loaders.loaderSettings(input) };
 }
 
 async function inspectJava(executable = 'java') {
@@ -457,7 +459,7 @@ class Launcher {
       if (meta.logging?.client) jvm.push(meta.logging.client.argument.replace('${path}', safePath(path.join(this.root, 'assets', 'log_configs'), meta.logging.client.file.id)));
       const game = expandArgs(meta.arguments.game, values, features);
       if (identity.demo && !game.includes('--demo')) game.push('--demo');
-      const args = [...jvmMemoryArgs(p.memory), ...jvm, meta.mainClass, ...game];
+      const args = [...jvmMemoryArgs(p.memory), ...(p.javaArgs || []), ...jvm, meta.mainClass, ...game];
       const logDir = path.join(this.root, 'logs');
       await fs.mkdir(logDir, { recursive: true });
       const log = createWriteStream(path.join(logDir, 'latest-launch.log'));
