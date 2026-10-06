@@ -86,10 +86,14 @@ async function start() {
   handle('accounts:local', name => { idle(); return accounts.createLocal(name); });
   handle('accounts:remove', id => { idle(); return accounts.remove(id); });
   handle('accounts:skin', id => accounts.skin(id));
-  handle('accounts:skin-choose', async (id, variant) => {
-    idle(); const result = await dialog.showOpenDialog(window, { title: 'Choose Minecraft skin', properties: ['openFile'], filters: [{ name: 'Minecraft skin PNG', extensions: ['png'] }] });
-    return result.canceled ? null : accounts.setSkin(id, result.filePaths[0], variant);
+  handle('skins:list', () => accounts.skins());
+  handle('skins:import', async (name, variant) => {
+    idle(); const result = await dialog.showOpenDialog(window, { title: 'Import Minecraft skin', properties: ['openFile'], filters: [{ name: 'Minecraft skin PNG', extensions: ['png'] }] });
+    return result.canceled ? null : accounts.importSkin(result.filePaths[0], name, variant);
   });
+  handle('skins:rename', (id, name) => accounts.renameSkin(id, name));
+  handle('skins:delete', id => accounts.deleteSkin(id));
+  handle('skins:apply', (accountId, skinId) => { idle(); return accounts.applySkin(accountId, skinId); });
   handle('accounts:begin', async () => {
     idle();
     const info = await accounts.begin();

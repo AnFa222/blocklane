@@ -172,3 +172,16 @@ test('Microsoft account skin uses the official profile and multipart skin endpoi
   assert.ok(Buffer.isBuffer(upload.options.raw));
   const body = upload.options.raw.toString('latin1'); assert.match(body, /name="variant"\r\n\r\nclassic/); assert.match(body, /name="file"; filename="skin\.png"/);
 });
+
+test('skin library saves many skins and supports rename, apply, and delete', async t => {
+  const f = await fixture(t); const local = await f.a.createLocal('SkinCollector');
+  const first = path.join(f.root, 'first.png'), second = path.join(f.root, 'second.png');
+  await fs.writeFile(first, skinPng()); await fs.writeFile(second, skinPng(64, 32));
+  const one = await f.a.importSkin(first, 'Explorer', 'classic'), two = await f.a.importSkin(second, 'Builder', 'slim');
+  let library = await f.a.skins(); assert.deepEqual(library.map(skin => skin.name), ['Builder', 'Explorer']); assert.ok(library.every(skin => skin.url.startsWith('data:image/png;base64,')));
+  library = await f.a.renameSkin(one.id, 'Explorer Prime'); assert.equal(library.find(skin => skin.id === one.id).name, 'Explorer Prime');
+  const applied = await f.a.applySkin(local.selected, two.id); assert.equal(applied.variant, 'slim'); assert.match(applied.url, /^data:image\/png;base64,/);
+  library = await f.a.deleteSkin(two.id); assert.deepEqual(library.map(skin => skin.id), [one.id]);
+  assert.match((await f.a.skin(local.selected)).url, /^data:image\/png;base64,/);
+  await assert.rejects(f.a.importSkin(first, '', 'classic'), /1–50/); await assert.rejects(f.a.applySkin(local.selected, two.id), /not found/);
+});

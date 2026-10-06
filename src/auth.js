@@ -117,6 +117,63 @@ class Accounts {
     return this.change(() => { this.data.accounts = [...this.data.accounts.filter(a => a.type !== 'local' || a.name !== account.name), account]; this.data.selected = account.id; });
   }
   account(id) { const account = this.data.accounts.find(value => value.id === id); if (!account) throw new Error('Account not found.'); return account; }
+  skinName(value) {
+    const name = typeof value === 'string' ? value.trim() : '';
+    if (!name || name.length > 50 || /[\u0000-\u001f]/.test(name)) throw new Error('Skin names must be 1–50 characters.');
+    return name;
+  }
+  async skinBytes(filename) {
+    const bytes = await fs.readFile(filename);
+    if (bytes.length > 1024 * 1024 || bytes.length < 24 || bytes.toString('hex', 0, 8) !== '89504e470d0a1a0a') throw new Error('Choose a valid PNG skin under 1 MB.');
+    const width = bytes.readUInt32BE(16), height = bytes.readUInt32BE(20);
+    if (width !== 64 || ![32, 64].includes(height)) throw new Error('Minecraft skins must be 64×64 or legacy 64×32 PNG files.');
+    return bytes;
+  }
+  libraryPath(id) {
+    if (!/^[a-f0-9]{32}$/i.test(id)) throw new Error('Invalid saved skin.');
+    return path.join(this.root, 'skins', 'library', `${id}.png`);
+  }
+  async readSkinLibrary() {
+    try {
+      const saved = JSON.parse(await fs.readFile(path.join(this.root, 'skins', 'library.json'), 'utf8'));
+      if (!Array.isArray(saved)) throw new Error('Invalid skin library.');
+      return saved.filter(item => item && /^[a-f0-9]{32}$/i.test(item.id) && typeof item.name === 'string' && ['classic', 'slim'].includes(item.variant));
+    } catch (error) { if (error.code === 'ENOENT') return []; throw new Error('The saved skin library could not be read.'); }
+  }
+  async writeSkinLibrary(items) {
+    const folder = path.join(this.root, 'skins'); await fs.mkdir(folder, { recursive: true });
+    const file = path.join(folder, 'library.json'), temp = `${file}.${crypto.randomUUID()}.tmp`;
+    try { await fs.writeFile(temp, JSON.stringify(items, null, 2)); await fs.rename(temp, file); }
+    finally { await fs.rm(temp, { force: true }); }
+  }
+  async skins() {
+    const items = await this.readSkinLibrary(), result = [];
+    for (const item of items) {
+      const bytes = await fs.readFile(this.libraryPath(item.id)).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+      if (bytes) result.push({ ...item, url: `data:image/png;base64,${bytes.toString('base64')}` });
+    }
+    return result;
+  }
+  async importSkin(filename, name, variant) {
+    name = this.skinName(name); if (!['classic', 'slim'].includes(variant)) throw new Error('Choose Classic or Slim arms.');
+    const bytes = await this.skinBytes(filename), id = crypto.randomUUID().replace(/-/g, ''), file = this.libraryPath(id);
+    const items = await this.readSkinLibrary(), item = { id, name, variant, createdAt: new Date(this.now()).toISOString() };
+    await fs.mkdir(path.dirname(file), { recursive: true }); await fs.writeFile(file, bytes);
+    try { await this.writeSkinLibrary([item, ...items]); } catch (error) { await fs.rm(file, { force: true }); throw error; }
+    return { ...item, url: `data:image/png;base64,${bytes.toString('base64')}` };
+  }
+  async renameSkin(id, name) {
+    name = this.skinName(name); const items = await this.readSkinLibrary(), item = items.find(value => value.id === id);
+    if (!item) throw new Error('Saved skin not found.'); item.name = name; await this.writeSkinLibrary(items); return this.skins();
+  }
+  async deleteSkin(id) {
+    const items = await this.readSkinLibrary(); if (!items.some(value => value.id === id)) throw new Error('Saved skin not found.');
+    await this.writeSkinLibrary(items.filter(value => value.id !== id)); await fs.rm(this.libraryPath(id), { force: true }); return this.skins();
+  }
+  async applySkin(accountId, skinId, signal) {
+    const items = await this.readSkinLibrary(), item = items.find(value => value.id === skinId); if (!item) throw new Error('Saved skin not found.');
+    return this.setSkin(accountId, this.libraryPath(item.id), item.variant, signal);
+  }
   async skin(id, signal) {
     const account = this.account(id);
     if (account.type === 'local') {
@@ -130,8 +187,7 @@ class Accounts {
   }
   async setSkin(id, filename, variant, signal) {
     const account = this.account(id); if (!['classic', 'slim'].includes(variant)) throw new Error('Choose Classic or Slim arms.');
-    const bytes = await fs.readFile(filename); if (bytes.length > 1024 * 1024 || bytes.length < 24 || bytes.toString('hex', 0, 8) !== '89504e470d0a1a0a') throw new Error('Choose a valid PNG skin under 1 MB.');
-    const width = bytes.readUInt32BE(16), height = bytes.readUInt32BE(20); if (width !== 64 || ![32, 64].includes(height)) throw new Error('Minecraft skins must be 64×64 or legacy 64×32 PNG files.');
+    const bytes = await this.skinBytes(filename);
     if (account.type === 'local') {
       await fs.mkdir(path.join(this.root, 'skins'), { recursive: true }); await fs.writeFile(path.join(this.root, 'skins', `${account.id}.png`), bytes);
       await this.change(() => { this.account(id).skinVariant = variant; }); return this.skin(id, signal);

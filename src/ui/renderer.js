@@ -5,7 +5,7 @@ let state = { profiles: [], installed: [], selectedProfile: null };
 let catalog = { versions: [], latest: {} };
 let filter = 'release', limit = 40, busy = false, running = false, toastTimer;
 let accountState = { selected: 'demo', configured: false, accounts: [{ id: 'demo', name: 'Demo player', type: 'demo' }] };
-let skinAccount = null;
+let skinLibrary = [], skinAccountId = null, skinLoadRequest = 0;
 let loginStarting = false;
 let loaderRequest = 0, loaderLoading = false;
 let modState = null, modSearchState = { query: '', offset: 0, total: 0, hits: [] }, modUpdates = [], modRequest = 0;
@@ -18,7 +18,7 @@ function button(text, className, action) { const node = el('button', className, 
 function toast(message, error = false) { clearTimeout(toastTimer); $('#toast').textContent = message; $('#toast').className = error ? 'error' : ''; $('#toast').hidden = false; toastTimer = setTimeout(() => $('#toast').hidden = true, error ? 12000 : 4500); }
 function log(message) { const box = $('#log'); box.textContent = (box.textContent + `\n[${new Date().toLocaleTimeString()}] ${message}`).slice(-80000); box.scrollTop = box.scrollHeight; }
 async function guard(action) { try { return await action(); } catch (e) { toast(e.message, true); log(e.message); } }
-function navigate(view) { $$('.view').forEach(n => n.classList.toggle('active', n.id === `view-${view}`)); $$('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view)); $('#page-title').textContent = view[0].toUpperCase() + view.slice(1); if (view === 'mods') guard(loadModsView); if (view === 'backups') guard(loadBackups); if (view === 'screenshots') guard(loadScreenshots); }
+function navigate(view) { $$('.view').forEach(n => n.classList.toggle('active', n.id === `view-${view}`)); $$('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view)); $('#page-title').textContent = view[0].toUpperCase() + view.slice(1); if (view === 'mods') guard(loadModsView); if (view === 'backups') guard(loadBackups); if (view === 'screenshots') guard(loadScreenshots); if (view === 'skins') guard(loadSkins); }
 function installed(id) { return state.installed.find(v => v.id === id); }
 function currentProfile() { return state.profiles.find(p => p.id === state.selectedProfile); }
 function profileInstalled(p) { return p && installed(p.version) && ((p.loader || 'vanilla') === 'vanilla' || state.installed.some(v => v.baseVersion === p.version && v.loader === p.loader && v.loaderVersion === p.loaderVersion)); }
@@ -138,7 +138,7 @@ function renderAccounts() {
     card.append(el('small', '', a.type === 'demo' ? 'NO ACCOUNT REQUIRED' : a.type === 'local' ? 'LOCAL PROFILE' : 'MICROSOFT ACCOUNT'), el('h3', '', a.name), el('p', '', a.type === 'demo' ? 'Try Minecraft in demo mode.' : a.type === 'local' ? 'Single-player or offline-mode servers.' : 'Minecraft Java Edition'));
     const actions = el('div', 'profile-card-actions');
     actions.append(button(a.id === selected.id ? 'Selected' : a.type === 'demo' ? 'Choose demo' : a.type === 'local' ? 'Use local profile' : 'Use account', a.id === selected.id ? 'quiet' : 'primary', async () => { accountState = await api.selectAccount(a.id); render(); }));
-    if (a.type !== 'demo') actions.append(button('Manage skin', 'quiet', () => openSkinEditor(a)));
+    if (a.type !== 'demo') actions.append(button('Manage skins', 'quiet', () => { skinAccountId = a.id; navigate('skins'); }));
     if (a.type !== 'demo') actions.append(button('Remove', 'quiet', () => {
       actions.replaceChildren(el('small', '', 'Remove saved sign-in? Worlds are kept.'), button('Keep', 'quiet', renderAccounts), button('Remove account', 'primary', async () => { accountState = await api.removeAccount(a.id); render(); }));
     }));
@@ -196,12 +196,38 @@ async function confirmDeleteProfile(p) {
   const actions = card.querySelector('.profile-card-actions'); actions.replaceChildren();
   actions.append(el('small', '', 'Remove profile? Worlds are kept.'), button('Keep', 'quiet', () => renderProfiles()), button('Remove', 'primary', async () => { state = await api.deleteProfile(p.id); render(); }));
 }
-async function openSkinEditor(account) {
-  skinAccount = account; $('#skin-title').textContent = account.name; $('#skin-error').textContent = ''; $('#skin-preview').hidden = true; $('#skin-empty').hidden = false;
-  $('#skin-note').textContent = account.type === 'local' ? 'Saved with this local profile. In-game display depends on the offline server or skin-support mod you use.' : 'Minecraft Services will read and upload this account’s official Java Edition skin.';
-  $('#skin-dialog').showModal();
-  try { const skin = await api.accountSkin(account.id); $('#skin-variant').value = skin.variant || 'classic'; if (skin.url) { $('#skin-preview').src = skin.url; $('#skin-preview').hidden = false; $('#skin-empty').hidden = true; } }
-  catch (error) { $('#skin-error').textContent = error.message; }
+async function loadSkins() {
+  const request = ++skinLoadRequest, accounts = accountState.accounts.filter(account => account.type !== 'demo'), picker = $('#skins-account');
+  const prior = skinAccountId || picker.value || (accountState.selected !== 'demo' ? accountState.selected : ''); picker.replaceChildren();
+  for (const account of accounts) { const option = el('option', '', `${account.name} · ${account.type === 'local' ? 'Local' : 'Microsoft'}`); option.value = account.id; picker.append(option); }
+  skinAccountId = accounts.some(account => account.id === prior) ? prior : accounts[0]?.id || null; picker.value = skinAccountId || ''; picker.disabled = !accounts.length;
+  const selectedAccount = accounts.find(account => account.id === skinAccountId);
+  $('#skins-notice').textContent = !accounts.length ? 'Add a Microsoft account or local profile before applying a skin. You can still build your library now.' : selectedAccount?.type === 'local' ? 'Local skins appear in Fabric, Forge, and NeoForge profiles. Blocklane installs the required client-side skin support automatically when you launch.' : 'Applying a skin uploads it to this Microsoft account through Minecraft Services. Restart Minecraft after changing it.';
+  const summary = $('#active-skin-summary'); summary.replaceChildren(el('span', 'muted', skinAccountId ? 'Loading active skin…' : 'No playable account selected.'));
+  const libraryPromise = api.listSkins();
+  let active = null, activeError = null;
+  if (skinAccountId) try { active = await api.accountSkin(skinAccountId); } catch (error) { activeError = error; }
+  const skins = await libraryPromise; if (request !== skinLoadRequest) return; skinLibrary = skins;
+  summary.replaceChildren();
+  if (active?.url) { const image = document.createElement('img'); image.src = active.url; image.alt = 'Active skin'; summary.append(image); }
+  const account = accounts.find(value => value.id === skinAccountId), copy = el('div');
+  copy.append(el('strong', '', account ? `${account.name} · Active skin` : 'No account selected'), el('small', '', activeError ? activeError.message : active ? `${active.variant === 'slim' ? 'Slim' : 'Classic'} arms${active.url ? '' : ' · Default skin'}` : 'Choose an account to apply skins.')); summary.append(copy);
+  renderSkinLibrary();
+}
+function renderSkinLibrary() {
+  const grid = $('#skins-grid'); grid.replaceChildren();
+  if (!skinLibrary.length) return grid.append(emptyMods('Your skin library is empty', 'Import PNG skins once, then switch between them whenever you want.'));
+  for (const skin of skinLibrary) {
+    const card = el('article', 'skin-card'); card.dataset.id = skin.id; const image = document.createElement('img'); image.src = skin.url; image.alt = skin.name;
+    const copy = el('div', 'skin-card-copy'); copy.append(el('strong', '', skin.name), el('small', '', `${skin.variant === 'slim' ? 'Slim' : 'Classic'} arms · Added ${new Date(skin.createdAt).toLocaleDateString()}`));
+    const actions = el('div', 'skin-card-actions');
+    const apply = button('Apply', 'primary small', async () => { if (!skinAccountId) throw new Error('Add or choose an account first.'); await api.applySkin(skinAccountId, skin.id); await loadSkins(); toast('Skin applied.'); }); apply.disabled = !skinAccountId || busy || running;
+    actions.append(apply, button('Rename', 'quiet small', () => { $('#skin-rename-id').value = skin.id; $('#skin-rename-name').value = skin.name; $('#skin-rename-error').textContent = ''; $('#skin-rename-dialog').showModal(); $('#skin-rename-name').focus(); }), button('Delete', 'quiet small', () => confirmDeleteSkin(card, skin)));
+    card.append(image, copy, actions); grid.append(card);
+  }
+}
+function confirmDeleteSkin(card, skin) {
+  const actions = card.querySelector('.skin-card-actions'); actions.replaceChildren(el('small', '', 'Delete from library?'), button('Keep', 'quiet small', renderSkinLibrary), button('Delete', 'primary small', async () => { skinLibrary = await api.deleteSkin(skin.id); renderSkinLibrary(); toast('Saved skin deleted.'); }));
 }
 
 function profilePicker(id) { const select = $(id), prior = select.value; select.replaceChildren(); for (const profile of state.profiles) { const option = el('option', '', profile.name); option.value = profile.id; select.append(option); } select.value = state.profiles.some(profile => profile.id === prior) ? prior : state.selectedProfile || state.profiles[0]?.id || ''; return select.value; }
@@ -366,8 +392,12 @@ $('#add-local-account').addEventListener('click', () => { $('#local-name').value
 $('#close-local').addEventListener('click', () => $('#local-dialog').close());
 $('#cancel-local').addEventListener('click', () => $('#local-dialog').close());
 $('#local-form').addEventListener('submit', event => guard(async () => { event.preventDefault(); try { accountState = await api.createLocalAccount($('#local-name').value); $('#local-dialog').close(); render(); toast('Local profile created.'); } catch (error) { $('#local-error').textContent = error.message; } }));
-for (const selector of ['#close-skin', '#cancel-skin']) $(selector).addEventListener('click', () => $('#skin-dialog').close());
-$('#choose-skin').addEventListener('click', () => guard(async () => { if (!skinAccount) return; $('#skin-error').textContent = ''; const skin = await api.chooseAccountSkin(skinAccount.id, $('#skin-variant').value); if (!skin) return; $('#skin-preview').src = skin.url; $('#skin-preview').hidden = false; $('#skin-empty').hidden = true; toast(skinAccount.type === 'local' ? 'Local skin saved.' : 'Minecraft skin updated.'); }));
+$('#skins-account').addEventListener('change', () => { skinAccountId = $('#skins-account').value; guard(loadSkins); });
+$('#import-skin').addEventListener('click', () => { $('#skin-import-name').value = ''; $('#skin-import-variant').value = 'classic'; $('#skin-import-error').textContent = ''; $('#skin-import-dialog').showModal(); $('#skin-import-name').focus(); });
+for (const selector of ['#close-skin-import', '#cancel-skin-import']) $(selector).addEventListener('click', () => $('#skin-import-dialog').close());
+$('#skin-import-form').addEventListener('submit', async event => { event.preventDefault(); $('#skin-import-error').textContent = ''; try { const skin = await api.importSkin($('#skin-import-name').value, $('#skin-import-variant').value); if (!skin) return; $('#skin-import-dialog').close(); await loadSkins(); toast('Skin saved to your library.'); } catch (error) { $('#skin-import-error').textContent = error.message; } });
+for (const selector of ['#close-skin-rename', '#cancel-skin-rename']) $(selector).addEventListener('click', () => $('#skin-rename-dialog').close());
+$('#skin-rename-form').addEventListener('submit', async event => { event.preventDefault(); $('#skin-rename-error').textContent = ''; try { skinLibrary = await api.renameSkin($('#skin-rename-id').value, $('#skin-rename-name').value); $('#skin-rename-dialog').close(); renderSkinLibrary(); toast('Skin renamed.'); } catch (error) { $('#skin-rename-error').textContent = error.message; } });
 $('#copy-code').addEventListener('click', () => guard(async () => { await navigator.clipboard.writeText($('#login-code').textContent); toast('Sign-in code copied.'); }));
 $('#cancel-login').addEventListener('click', () => guard(async () => { await api.cancelLogin(); $('#login-status').textContent = 'Cancelling…'; }));
 $('#login-dialog').addEventListener('cancel', event => { event.preventDefault(); guard(() => api.cancelLogin()); });

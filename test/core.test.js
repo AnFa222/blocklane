@@ -7,6 +7,7 @@ const crypto = require('node:crypto');
 const zlib = require('node:zlib');
 const { Readable } = require('node:stream');
 const network = require('../src/network');
+const mods = require('../src/mods');
 function fakeResponse(bytes, options = {}) { const stream = Readable.from([bytes]); stream.statusCode = options.status || 200; stream.headers = {}; return stream; }
 const { Launcher, allowed, expandArgs, safePath, validateProfile, libraryPlan, download, pool, extractNatives } = require('../src/core');
 const windows = { name: 'windows', arch: 'x86_64', version: '10.0.22631' };
@@ -92,6 +93,30 @@ test('native extraction reads files and rejects symlinks', async t => {
   assert.equal(await fs.readFile(path.join(root, 'native/native.dll'), 'utf8'), 'native bytes');
   await fs.writeFile(zip, zipEntry('link', '../outside', 0xa1ff));
   await assert.rejects(extractNatives(zip, path.join(root, 'native'), []), /non-regular/);
+});
+
+test('local skins are prepared in the instance and install loader support', async t => {
+  const root = await temp(t), launcher = new Launcher(root), bytes = Buffer.alloc(24), calls = [];
+  Buffer.from('89504e470d0a1a0a', 'hex').copy(bytes); bytes.writeUInt32BE(64, 16); bytes.writeUInt32BE(64, 20);
+  const identity = { local: true, uuid: 'a'.repeat(32), name: 'OfflinePlayer' }, profile = { id: 'profile', version: '1.21.1', loader: 'fabric' }, gameDir = path.join(root, 'instances', 'profile');
+  await fs.mkdir(path.join(root, 'skins'), { recursive: true }); await fs.writeFile(path.join(root, 'skins', `${identity.uuid}.png`), bytes);
+  t.mock.method(mods, 'list', async () => ({ installed: [], local: [] }));
+  t.mock.method(mods, 'installProject', async (p, projectId) => calls.push({ p, projectId }));
+  const result = await launcher.prepareLocalSkin(profile, identity, gameDir, new AbortController().signal);
+  assert.deepEqual(result, { active: true, supported: true }); assert.equal(calls[0].projectId, 'idMHQ4n2');
+  assert.deepEqual(await fs.readFile(path.join(gameDir, 'CustomSkinLoader', 'LocalSkin', 'skins', 'OfflinePlayer.png')), bytes);
+  const vanilla = await launcher.prepareLocalSkin({ ...profile, loader: 'vanilla' }, identity, path.join(root, 'vanilla'), new AbortController().signal);
+  assert.deepEqual(vanilla, { active: true, supported: false }); assert.equal(calls.length, 1);
+});
+
+test('missing local skin support does not prevent the game from launching', async t => {
+  const root = await temp(t), messages = [], launcher = new Launcher(root, (event, message) => { if (event === 'log') messages.push(message); }), bytes = Buffer.alloc(24);
+  Buffer.from('89504e470d0a1a0a', 'hex').copy(bytes); bytes.writeUInt32BE(64, 16); bytes.writeUInt32BE(64, 20);
+  const identity = { local: true, uuid: 'b'.repeat(32), name: 'SnapshotPlayer' }, profile = { id: 'snapshot', version: '26.3', loader: 'fabric' };
+  await fs.mkdir(path.join(root, 'skins'), { recursive: true }); await fs.writeFile(path.join(root, 'skins', `${identity.uuid}.png`), bytes);
+  t.mock.method(mods, 'list', async () => ({ installed: [], local: [] })); t.mock.method(mods, 'installProject', async () => { throw new Error('No compatible fabric version exists for Minecraft 26.3.'); });
+  assert.deepEqual(await launcher.prepareLocalSkin(profile, identity, path.join(root, 'instances', 'snapshot'), new AbortController().signal), { active: true, supported: false });
+  assert.match(messages[0], /unavailable.*26\.3.*No compatible/i);
 });
 
 function fixture() {

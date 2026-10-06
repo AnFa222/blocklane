@@ -17,6 +17,7 @@ const loaders = require('./loaders');
 const mods = require('./mods');
 const shaders = require('./shaders');
 const resourcepacks = require('./resourcepacks');
+const LOCAL_SKIN_MOD = 'idMHQ4n2';
 
 const MANIFEST = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json';
 const exec = promisify(execFile);
@@ -406,6 +407,27 @@ class Launcher {
   async resourcepackInstall(profileId, projectId) { if (this.busy || this.child) throw new Error('Wait for the current operation or game to finish.'); const p = this.modProfile(profileId); this.busy = true; this.controller = new AbortController(); try { return await resourcepacks.install(p, projectId, this.resourcepacksDir(p), this.loaderIO(), this.controller.signal, message => this.progress(message)); } finally { this.busy = false; this.controller = null; } }
   async resourcepackEnable(profileId, projectId, enabled) { const p = this.modProfile(profileId); return resourcepacks.setEnabled(p, this.resourcepacksDir(p), projectId, Boolean(enabled), this.loaderIO()); }
   async resourcepackRemove(profileId, projectId) { const p = this.modProfile(profileId); return resourcepacks.remove(p, this.resourcepacksDir(p), projectId, this.loaderIO()); }
+  async prepareLocalSkin(profile, identity, gameDir, signal) {
+    if (!identity.local) return { active: false, supported: true };
+    const source = path.join(this.root, 'skins', `${identity.uuid}.png`);
+    const bytes = await fs.readFile(source).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+    if (!bytes) return { active: false, supported: true };
+    if (bytes.length > 1024 * 1024 || bytes.length < 24 || bytes.toString('hex', 0, 8) !== '89504e470d0a1a0a' || bytes.readUInt32BE(16) !== 64 || ![32, 64].includes(bytes.readUInt32BE(20))) throw new Error('The active local skin is damaged. Apply it again from the Skins tab.');
+    const destination = path.join(gameDir, 'CustomSkinLoader', 'LocalSkin', 'skins', `${identity.name}.png`);
+    await fs.mkdir(path.dirname(destination), { recursive: true }); await fs.writeFile(destination, bytes);
+    if ((profile.loader || 'vanilla') === 'vanilla') return { active: true, supported: false };
+    const current = await mods.list(profile, this.modsDir(profile), this.loaderIO());
+    const managed = current.installed.find(mod => mod.projectId === LOCAL_SKIN_MOD);
+    const manual = current.local.some(mod => mod.enabled && /custom.?skin.?loader/i.test(mod.filename));
+    if (managed?.enabled === false && !managed.missing) await mods.setEnabled(profile, this.modsDir(profile), LOCAL_SKIN_MOD, true, this.loaderIO());
+    else if (!manual && (!managed || managed.missing)) {
+      this.progress('Installing local skin support', 0, 1);
+      try { await mods.installProject(profile, LOCAL_SKIN_MOD, this.modsDir(profile), this.loaderIO(), signal, message => this.progress(message)); }
+      catch (error) { this.emit('log', `Local skin support is unavailable for ${profile.loader} ${profile.version}: ${error.message}`); return { active: true, supported: false }; }
+      this.progress('Local skin support is ready', 1, 1);
+    }
+    return { active: true, supported: true };
+  }
   async ensureJava(meta, signal) {
     return ensureRuntime(meta, path.join(this.root, 'runtimes'), path.join(__dirname, '..', 'runtimes'),
       { safePath, readJson, hashFile, inspectJava, remoteJson, download, pool, atomicJson }, signal,
@@ -495,6 +517,8 @@ class Launcher {
       for (const file of classpath) await fs.access(file).catch(() => { throw new Error('Game files are missing. Repair the version in the Versions tab.'); });
       const gameDir = path.join(this.root, 'instances', p.id);
       await fs.mkdir(gameDir, { recursive: true });
+      const localSkin = await this.prepareLocalSkin(p, identity, gameDir, this.controller.signal);
+      if (localSkin.active && !localSkin.supported) this.emit('log', 'Local skins require Fabric, Forge, or NeoForge. This vanilla profile will use Minecraft’s default offline skin.');
       const values = {
         natives_directory: path.join(baseDir, 'natives'), launcher_name: 'Blocklane', launcher_version: launcherVersion,
         classpath: classpath.join(path.delimiter), classpath_separator: path.delimiter, library_directory: path.join(this.root, 'libraries'),
