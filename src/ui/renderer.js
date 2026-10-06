@@ -218,6 +218,7 @@ function openProfile(profile = null, version = null) {
   $('#profile-memory').value = String(profile?.memory || 4);
   $('#profile-java').value = !profile?.javaPath || ['java', 'java.exe', 'auto'].includes(profile.javaPath.toLowerCase()) ? 'auto' : profile.javaPath;
   $('#profile-java-args').value = (profile?.javaArgs || []).join('\n');
+  $('#profile-game-args').value = (profile?.gameArgs || []).join('\n');
   $('#profile-jvm-args').textContent = profileJvmArguments(profile?.memory || 4).join('\n');
   $('#profile-error').textContent = '';
   $('#java-check-result').textContent = 'Automatic Java is included; matching older runtimes are installed when needed.';
@@ -299,7 +300,7 @@ for (const selector of ['#close-dialog', '#cancel-dialog']) $(selector).addEvent
 $('#profile-form').addEventListener('submit', async event => {
   if (loaderLoading) { event.preventDefault(); return; }
   event.preventDefault(); $('#save-profile').disabled = true; $('#profile-error').textContent = '';
-  try { state = await api.saveProfile({ id: $('#profile-id').value || undefined, name: $('#profile-name').value, version: $('#profile-version').value, memory: Number($('#profile-memory').value), javaPath: $('#profile-java').value, javaArgs: $('#profile-java-args').value.split(/\r?\n/).map(arg => arg.trim()).filter(Boolean), loader: $('#profile-loader').value, loaderVersion: $('#profile-loader-version').value }); $('#profile-dialog').close(); render(); toast('Profile saved.'); }
+  try { state = await api.saveProfile({ id: $('#profile-id').value || undefined, name: $('#profile-name').value, version: $('#profile-version').value, memory: Number($('#profile-memory').value), javaPath: $('#profile-java').value, javaArgs: $('#profile-java-args').value.split(/\r?\n/).map(arg => arg.trim()).filter(Boolean), gameArgs: $('#profile-game-args').value.split(/\r?\n/).map(arg => arg.trim()).filter(Boolean), loader: $('#profile-loader').value, loaderVersion: $('#profile-loader-version').value }); $('#profile-dialog').close(); render(); toast('Profile saved.'); }
   catch (error) { $('#profile-error').textContent = error.message; }
   finally { $('#save-profile').disabled = false; }
 });
