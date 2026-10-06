@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('launcher', {
   accounts: () => invoke('accounts:list'),
   selectAccount: id => invoke('accounts:select', id), removeAccount: id => invoke('accounts:remove', id),
   createLocalAccount: name => invoke('accounts:local', name),
+  accountSkin: id => invoke('accounts:skin', id), chooseAccountSkin: (id, variant) => invoke('accounts:skin-choose', id, variant),
   beginLogin: () => invoke('accounts:begin'), cancelLogin: () => invoke('accounts:cancel'), openLogin: () => invoke('accounts:browser'),
   inspectJava: executable => invoke('java:inspect', executable), browseJava: () => invoke('java:browse'), openFolder: () => invoke('folder:open'),
   checkUpdates: () => invoke('updates:check'), openUpdate: url => invoke('updates:open', url),

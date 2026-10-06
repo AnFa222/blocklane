@@ -19,8 +19,13 @@
 
 .restore-worlds{display:grid;gap:7px;max-height:260px;overflow:auto;padding:4px}.restore-world{display:flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:6px;padding:10px;color:#c6d2c2;font-size:12px}.restore-world input{min-width:auto}
 
-#screenshot-dialog{width:min(1100px,94vw)}.screenshot-stage{height:min(65vh,700px);overflow:auto;display:grid;place-items:center;background:#090d0a;border:1px solid var(--line);border-radius:7px}.screenshot-stage img{max-width:100%;max-height:100%;object-fit:contain;transform-origin:center;transition:transform .12s}.screenshot-card{cursor:pointer}
+#screenshot-dialog{width:fit-content;max-width:94vw;max-height:94dvh;padding:20px;overflow:hidden}
+#screenshot-dialog .modal-heading{margin-bottom:12px;gap:16px}
+#screenshot-dialog .modal-heading>div{min-width:0}
+#screenshot-title{font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:min(900px,calc(94vw - 100px))}
+#screenshot-dialog .modal-footer{margin-top:12px;padding-top:12px}
+#screenshot-stage{height:auto;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#090d0a;border:1px solid var(--line);border-radius:7px;cursor:default}
+#screenshot-stage img{display:block;width:auto;height:auto;max-width:min(1040px,calc(94vw - 44px));max-height:calc(94dvh - 180px);object-fit:contain;transform:none;transition:none;user-select:none;cursor:default}
+.screenshot-card{cursor:pointer}
 
-#screenshot-stage{overflow:hidden;cursor:grab}#screenshot-stage:active{cursor:grabbing}#screenshot-stage img{width:100%;height:100%;max-width:none;max-height:none;object-fit:contain;user-select:none}
-
-#screenshot-stage{cursor:default}#screenshot-stage img{transform:none;transition:none;cursor:default}
+.skin-editor{display:grid;grid-template-columns:180px 1fr;gap:20px;align-items:center}.skin-preview{height:220px;display:grid;place-items:center;background:#0b100d;border:1px solid var(--line);border-radius:8px;overflow:hidden}.skin-preview img{width:192px;height:192px;object-fit:contain;image-rendering:pixelated}.skin-preview span{color:var(--muted);font-size:11px}.skin-editor label{display:block;font-size:11px;color:#b7c3ae;margin-bottom:7px}.skin-editor select{width:100%}

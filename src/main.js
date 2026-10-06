@@ -85,6 +85,11 @@ async function start() {
   handle('accounts:select', id => { idle(); return accounts.select(id); });
   handle('accounts:local', name => { idle(); return accounts.createLocal(name); });
   handle('accounts:remove', id => { idle(); return accounts.remove(id); });
+  handle('accounts:skin', id => accounts.skin(id));
+  handle('accounts:skin-choose', async (id, variant) => {
+    idle(); const result = await dialog.showOpenDialog(window, { title: 'Choose Minecraft skin', properties: ['openFile'], filters: [{ name: 'Minecraft skin PNG', extensions: ['png'] }] });
+    return result.canceled ? null : accounts.setSkin(id, result.filePaths[0], variant);
+  });
   handle('accounts:begin', async () => {
     idle();
     const info = await accounts.begin();

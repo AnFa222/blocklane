@@ -30,7 +30,7 @@ function secure() {
 }
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'blocklane-auth-')); t.after(() => fs.rm(root, { recursive: true, force: true }));
-  const cipher = secure(); let identity = FIRST, owned = true, profileCalls = 0;
+  const cipher = secure(); let identity = FIRST, owned = true, profileCalls = 0, profileSkins = [];
   const calls = [];
   const request = async (url, options) => {
     calls.push({ url, options }); options.signal?.throwIfAborted();
@@ -40,11 +40,20 @@ async function fixture(t) {
     if (url === URLS.xsts) return { Token: 'xsts-secret', DisplayClaims: { xui: [{ uhs: 'hash', xid: '123' }] } };
     if (url === URLS.minecraft) return { access_token: 'minecraft-access-secret', expires_in: 3600 };
     if (url === URLS.entitlements) return { items: owned ? [{ name: 'game_minecraft' }] : [] };
-    if (url === URLS.profile) { profileCalls++; return { id: identity, name: identity === FIRST ? 'PlayerOne' : 'PlayerTwo' }; }
+    if (url === URLS.profile) { profileCalls++; return { id: identity, name: identity === FIRST ? 'PlayerOne' : 'PlayerTwo', skins: profileSkins }; }
+    if (url === URLS.skins) return {};
     throw new Error('Unexpected endpoint');
   };
   const a = new Accounts(root, cipher, { request, wait: async () => {}, clientId: CLIENT }); await a.init();
-  return { a, root, cipher, request, calls, identity: id => identity = id, ownership: value => owned = value, profileCalls: () => profileCalls };
+  return { a, root, cipher, request, calls, identity: id => identity = id, ownership: value => owned = value, skins: value => profileSkins = value, profileCalls: () => profileCalls };
+}
+
+function skinPng(width = 64, height = 64) {
+  const bytes = Buffer.alloc(24);
+  Buffer.from('89504e470d0a1a0a', 'hex').copy(bytes);
+  bytes.writeUInt32BE(13, 8); Buffer.from('IHDR').copy(bytes, 12);
+  bytes.writeUInt32BE(width, 16); bytes.writeUInt32BE(height, 20);
+  return bytes;
 }
 test('client ID validation and explicit demo/full-session separation', () => {
   assert.equal(clientId(CLIENT), CLIENT); assert.throws(() => clientId('password'));
@@ -138,4 +147,28 @@ test('unconfigured builds do not send sign-in requests or ask players for an ID'
   assert.equal(a.list().configured, false);
   await assert.rejects(a.begin(), /not available in this development build/);
   assert.equal((await a.session('demo')).demo, true);
+});
+
+test('local account skins validate and persist per account without network access', async t => {
+  const f = await fixture(t); const local = await f.a.createLocal('OfflinePlayer');
+  const file = path.join(f.root, 'alex.png'); await fs.writeFile(file, skinPng());
+  const saved = await f.a.setSkin(local.selected, file, 'slim');
+  assert.equal(saved.type, 'local'); assert.equal(saved.variant, 'slim'); assert.match(saved.url, /^data:image\/png;base64,/);
+  assert.equal(f.calls.length, 0);
+  const restored = new Accounts(f.root, f.cipher, { request: async () => { throw new Error('Local skin must not use the network.'); } }); await restored.init();
+  assert.equal((await restored.skin(local.selected)).variant, 'slim');
+  const invalid = path.join(f.root, 'invalid.png'); await fs.writeFile(invalid, skinPng(128, 128));
+  await assert.rejects(restored.setSkin(local.selected, invalid, 'classic'), /64×64 or legacy 64×32/);
+});
+
+test('Microsoft account skin uses the official profile and multipart skin endpoints', async t => {
+  const f = await fixture(t); await f.a.begin(); await f.a.finish();
+  f.skins([{ state: 'ACTIVE', variant: 'CLASSIC', url: 'https://textures.minecraft.net/texture/example' }]);
+  const file = path.join(f.root, 'steve.png'); await fs.writeFile(file, skinPng(64, 32));
+  const saved = await f.a.setSkin(FIRST, file, 'classic');
+  assert.equal(saved.type, 'microsoft'); assert.equal(saved.variant, 'classic'); assert.equal(saved.url, 'https://textures.minecraft.net/texture/example');
+  const upload = f.calls.find(call => call.url === URLS.skins);
+  assert.ok(upload); assert.equal(upload.options.token, 'minecraft-access-secret'); assert.match(upload.options.contentType, /^multipart\/form-data; boundary=/);
+  assert.ok(Buffer.isBuffer(upload.options.raw));
+  const body = upload.options.raw.toString('latin1'); assert.match(body, /name="variant"\r\n\r\nclassic/); assert.match(body, /name="file"; filename="skin\.png"/);
 });

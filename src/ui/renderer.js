@@ -5,6 +5,7 @@ let state = { profiles: [], installed: [], selectedProfile: null };
 let catalog = { versions: [], latest: {} };
 let filter = 'release', limit = 40, busy = false, running = false, toastTimer;
 let accountState = { selected: 'demo', configured: false, accounts: [{ id: 'demo', name: 'Demo player', type: 'demo' }] };
+let skinAccount = null;
 let loginStarting = false;
 let loaderRequest = 0, loaderLoading = false;
 let modState = null, modSearchState = { query: '', offset: 0, total: 0, hits: [] }, modUpdates = [], modRequest = 0;
@@ -137,6 +138,7 @@ function renderAccounts() {
     card.append(el('small', '', a.type === 'demo' ? 'NO ACCOUNT REQUIRED' : a.type === 'local' ? 'LOCAL PROFILE' : 'MICROSOFT ACCOUNT'), el('h3', '', a.name), el('p', '', a.type === 'demo' ? 'Try Minecraft in demo mode.' : a.type === 'local' ? 'Single-player or offline-mode servers.' : 'Minecraft Java Edition'));
     const actions = el('div', 'profile-card-actions');
     actions.append(button(a.id === selected.id ? 'Selected' : a.type === 'demo' ? 'Choose demo' : a.type === 'local' ? 'Use local profile' : 'Use account', a.id === selected.id ? 'quiet' : 'primary', async () => { accountState = await api.selectAccount(a.id); render(); }));
+    if (a.type !== 'demo') actions.append(button('Manage skin', 'quiet', () => openSkinEditor(a)));
     if (a.type !== 'demo') actions.append(button('Remove', 'quiet', () => {
       actions.replaceChildren(el('small', '', 'Remove saved sign-in? Worlds are kept.'), button('Keep', 'quiet', renderAccounts), button('Remove account', 'primary', async () => { accountState = await api.removeAccount(a.id); render(); }));
     }));
@@ -193,6 +195,13 @@ async function confirmDeleteProfile(p) {
   const card = [...$('#profiles-grid').children].find(c => c.dataset.id === p.id);
   const actions = card.querySelector('.profile-card-actions'); actions.replaceChildren();
   actions.append(el('small', '', 'Remove profile? Worlds are kept.'), button('Keep', 'quiet', () => renderProfiles()), button('Remove', 'primary', async () => { state = await api.deleteProfile(p.id); render(); }));
+}
+async function openSkinEditor(account) {
+  skinAccount = account; $('#skin-title').textContent = account.name; $('#skin-error').textContent = ''; $('#skin-preview').hidden = true; $('#skin-empty').hidden = false;
+  $('#skin-note').textContent = account.type === 'local' ? 'Saved with this local profile. In-game display depends on the offline server or skin-support mod you use.' : 'Minecraft Services will read and upload this account’s official Java Edition skin.';
+  $('#skin-dialog').showModal();
+  try { const skin = await api.accountSkin(account.id); $('#skin-variant').value = skin.variant || 'classic'; if (skin.url) { $('#skin-preview').src = skin.url; $('#skin-preview').hidden = false; $('#skin-empty').hidden = true; } }
+  catch (error) { $('#skin-error').textContent = error.message; }
 }
 
 function profilePicker(id) { const select = $(id), prior = select.value; select.replaceChildren(); for (const profile of state.profiles) { const option = el('option', '', profile.name); option.value = profile.id; select.append(option); } select.value = state.profiles.some(profile => profile.id === prior) ? prior : state.selectedProfile || state.profiles[0]?.id || ''; return select.value; }
@@ -357,6 +366,8 @@ $('#add-local-account').addEventListener('click', () => { $('#local-name').value
 $('#close-local').addEventListener('click', () => $('#local-dialog').close());
 $('#cancel-local').addEventListener('click', () => $('#local-dialog').close());
 $('#local-form').addEventListener('submit', event => guard(async () => { event.preventDefault(); try { accountState = await api.createLocalAccount($('#local-name').value); $('#local-dialog').close(); render(); toast('Local profile created.'); } catch (error) { $('#local-error').textContent = error.message; } }));
+for (const selector of ['#close-skin', '#cancel-skin']) $(selector).addEventListener('click', () => $('#skin-dialog').close());
+$('#choose-skin').addEventListener('click', () => guard(async () => { if (!skinAccount) return; $('#skin-error').textContent = ''; const skin = await api.chooseAccountSkin(skinAccount.id, $('#skin-variant').value); if (!skin) return; $('#skin-preview').src = skin.url; $('#skin-preview').hidden = false; $('#skin-empty').hidden = true; toast(skinAccount.type === 'local' ? 'Local skin saved.' : 'Minecraft skin updated.'); }));
 $('#copy-code').addEventListener('click', () => guard(async () => { await navigator.clipboard.writeText($('#login-code').textContent); toast('Sign-in code copied.'); }));
 $('#cancel-login').addEventListener('click', () => guard(async () => { await api.cancelLogin(); $('#login-status').textContent = 'Cancelling…'; }));
 $('#login-dialog').addEventListener('cancel', event => { event.preventDefault(); guard(() => api.cancelLogin()); });
