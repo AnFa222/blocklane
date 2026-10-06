@@ -309,13 +309,16 @@ class Launcher {
     return { profileId: profile.id, path: destination, createdAt: new Date().toISOString(), name: label };
   }
   async backups(id) { const profile = this.profile(id), root = path.join(this.root, 'backups', profile.id); const entries = await fs.readdir(root, { withFileTypes: true }).catch(() => []); return (await Promise.all(entries.filter(item => item.isDirectory()).map(async item => { const [stamp, savedName] = item.name.split('__', 2), stat = await fs.stat(path.join(root, item.name)); return { id: item.name, name: savedName || 'World backup', createdAt: stat.birthtime.toISOString(), worlds: (await fs.readdir(path.join(root, item.name, 'saves'), { withFileTypes: true }).catch(() => [])).filter(world => world.isDirectory()).map(world => world.name) }; }))).sort((a, b) => b.createdAt.localeCompare(a.createdAt)); }
-  async restoreBackup(id, backupId) {
+  async restoreBackup(id, backupId, worlds = null) {
     if (this.child || this.busy) throw new Error('Close Minecraft before restoring a backup.');
     const profile = this.profile(id); if (typeof backupId !== 'string' || !/^[^\\/:*?"<>|]+$/.test(backupId)) throw new Error('Invalid backup.');
     const source = path.join(this.root, 'backups', profile.id, backupId, 'saves'); await fs.access(source).catch(() => { throw new Error('Backup worlds could not be found.'); });
+    const available = (await fs.readdir(source, { withFileTypes: true })).filter(item => item.isDirectory()).map(item => item.name);
+    const selected = worlds == null ? available : worlds; if (!Array.isArray(selected) || !selected.length || selected.some(world => typeof world !== 'string' || !available.includes(world))) throw new Error('Choose at least one world from this backup.');
     const current = path.join(this.root, 'instances', profile.id, 'saves'); if (await fs.access(current).then(() => true).catch(() => false)) await this.backupProfile(id, 'Pre-restore backup');
-    await fs.rm(current, { recursive: true, force: true }); await fs.cp(source, current, { recursive: true }); return { restored: true };
+    await fs.mkdir(current, { recursive: true }); for (const world of selected) { await fs.rm(path.join(current, world), { recursive: true, force: true }); await fs.cp(path.join(source, world), path.join(current, world), { recursive: true }); } return { restored: true, worlds: selected };
   }
+  async deleteBackup(id, backupId) { const profile = this.profile(id); if (typeof backupId !== 'string' || !/^[^\\/:*?"<>|]+$/.test(backupId)) throw new Error('Invalid backup.'); const target = path.join(this.root, 'backups', profile.id, backupId); await fs.rm(target, { recursive: true, force: true }); return this.backups(id); }
   async screenshots(id) { const profile = this.profile(id), root = path.join(this.root, 'instances', profile.id, 'screenshots'); const entries = await fs.readdir(root, { withFileTypes: true }).catch(() => []); const images = entries.filter(item => item.isFile() && /\.(png|jpe?g)$/i.test(item.name)).slice(-40).reverse(); return Promise.all(images.map(async item => { const file = path.join(root, item.name), stat = await fs.stat(file); if (stat.size > 15 * 1024 * 1024) return { name: item.name, size: stat.size, skipped: true }; const ext = path.extname(item.name).toLowerCase() === '.png' ? 'png' : 'jpeg'; return { name: item.name, size: stat.size, dataUrl: `data:image/${ext};base64,${(await fs.readFile(file)).toString('base64')}` }; })); }
   async servers(id, next) {
     const profile = this.profile(id); if (next === undefined) return profile.servers || [];

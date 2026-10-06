@@ -67,7 +67,8 @@ async function start() {
   handle('profile:clone', (id, name) => launcher.cloneProfile(id, name));
   handle('profile:backup', (id, name) => launcher.backupProfile(id, name));
   handle('profile:backups', id => launcher.backups(id));
-  handle('profile:restore-backup', (id, backupId) => launcher.restoreBackup(id, backupId));
+  handle('profile:restore-backup', (id, backupId, worlds) => launcher.restoreBackup(id, backupId, worlds));
+  handle('profile:delete-backup', (id, backupId) => launcher.deleteBackup(id, backupId));
   handle('profile:screenshots', id => launcher.screenshots(id));
   handle('profile:servers', (id, servers) => launcher.servers(id, servers));
   handle('launch', id => launcher.launch(id, accounts.list().selected));
