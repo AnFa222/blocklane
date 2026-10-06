@@ -70,6 +70,12 @@ async function start() {
   handle('profile:restore-backup', (id, backupId, worlds) => launcher.restoreBackup(id, backupId, worlds));
   handle('profile:delete-backup', (id, backupId) => launcher.deleteBackup(id, backupId));
   handle('profile:screenshots', id => launcher.screenshots(id));
+  handle('screenshots:export', async (id, filename) => {
+    validId(id); if (typeof filename !== 'string' || path.basename(filename) !== filename || !/\.(png|jpe?g)$/i.test(filename)) throw new Error('Invalid screenshot file.');
+    const profile = launcher.profile(id), source = path.join(launcher.root, 'instances', profile.id, 'screenshots', filename); await fs.access(source);
+    const target = await dialog.showSaveDialog(window, { title: 'Export screenshot', defaultPath: filename, filters: [{ name: 'Image', extensions: [path.extname(filename).slice(1)] }] });
+    if (target.canceled || !target.filePath) return { cancelled: true }; await fs.copyFile(source, target.filePath); return { exported: true };
+  });
   handle('profile:servers', (id, servers) => launcher.servers(id, servers));
   handle('launch', id => launcher.launch(id, accounts.list().selected));
   handle('server:launch', (id, address) => launcher.launchServer(id, accounts.list().selected, address));
