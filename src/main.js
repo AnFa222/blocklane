@@ -55,6 +55,11 @@ async function start() {
   handle('shaders:install', (profileId, projectId) => launcher.shaderInstall(profileId, projectId));
   handle('shaders:enable', (profileId, projectId, enabled) => launcher.shaderEnable(profileId, projectId, enabled));
   handle('shaders:remove', (profileId, projectId) => launcher.shaderRemove(profileId, projectId));
+  handle('resourcepacks:search', (profileId, query, offset) => launcher.resourcepackSearch(profileId, query, offset));
+  handle('resourcepacks:list', profileId => launcher.resourcepackList(profileId));
+  handle('resourcepacks:install', (profileId, projectId) => launcher.resourcepackInstall(profileId, projectId));
+  handle('resourcepacks:enable', (profileId, projectId, enabled) => launcher.resourcepackEnable(profileId, projectId, enabled));
+  handle('resourcepacks:remove', (profileId, projectId) => launcher.resourcepackRemove(profileId, projectId));
   handle('cancel', () => launcher.cancel());
   handle('profile:save', p => launcher.saveProfile(p));
   handle('profile:select', id => launcher.selectProfile(id));
@@ -103,6 +108,11 @@ async function start() {
     if (!launcher.state.profiles.some(p => p.id === id)) throw new Error('Profile does not exist.');
     const folder = path.join(launcher.root, 'instances', id, 'shaderpacks');
     await fs.mkdir(folder, { recursive: true });
+    const error = await shell.openPath(folder); if (error) throw new Error(error);
+  });
+  handle('folder:resourcepacks', async id => {
+    validId(id); if (!launcher.state.profiles.some(p => p.id === id)) throw new Error('Profile does not exist.');
+    const folder = path.join(launcher.root, 'instances', id, 'resourcepacks'); await fs.mkdir(folder, { recursive: true });
     const error = await shell.openPath(folder); if (error) throw new Error(error);
   });
   window = new BrowserWindow({ width: 1240, height: 850, minWidth: 1000, minHeight: 700, show: !smoke, title: 'Blocklane', backgroundColor: '#101412', autoHideMenuBar: true,

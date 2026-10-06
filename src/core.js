@@ -16,6 +16,7 @@ const launcherVersion = require('../package.json').version;
 const loaders = require('./loaders');
 const mods = require('./mods');
 const shaders = require('./shaders');
+const resourcepacks = require('./resourcepacks');
 
 const MANIFEST = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json';
 const exec = promisify(execFile);
@@ -310,6 +311,7 @@ class Launcher {
   }
   modsDir(profile) { return path.join(this.root, 'instances', profile.id, 'mods'); }
   shaderpacksDir(profile) { return path.join(this.root, 'instances', profile.id, 'shaderpacks'); }
+  resourcepacksDir(profile) { return path.join(this.root, 'instances', profile.id, 'resourcepacks'); }
   async modSearch(profileId, query = '', offset = 0) { const p = this.modProfile(profileId); return mods.search(p, query, offset, this.loaderIO()); }
   async modDetails(profileId, projectId) { const p = this.modProfile(profileId); return mods.project(projectId, this.loaderIO()); }
   async modList(profileId) { const p = this.modProfile(profileId); return mods.list(p, this.modsDir(p), this.loaderIO()); }
@@ -348,6 +350,11 @@ class Launcher {
   }
   async shaderEnable(profileId, projectId, enabled) { const p = this.modProfile(profileId); return shaders.setEnabled(p, this.shaderpacksDir(p), projectId, Boolean(enabled), this.loaderIO()); }
   async shaderRemove(profileId, projectId) { const p = this.modProfile(profileId); return shaders.remove(p, this.shaderpacksDir(p), projectId, this.loaderIO()); }
+  async resourcepackSearch(profileId, query = '', offset = 0) { const p = this.modProfile(profileId); return resourcepacks.search(p, query, offset, this.loaderIO()); }
+  async resourcepackList(profileId) { const p = this.modProfile(profileId); return resourcepacks.list(p, this.resourcepacksDir(p), this.loaderIO()); }
+  async resourcepackInstall(profileId, projectId) { if (this.busy || this.child) throw new Error('Wait for the current operation or game to finish.'); const p = this.modProfile(profileId); this.busy = true; this.controller = new AbortController(); try { return await resourcepacks.install(p, projectId, this.resourcepacksDir(p), this.loaderIO(), this.controller.signal, message => this.progress(message)); } finally { this.busy = false; this.controller = null; } }
+  async resourcepackEnable(profileId, projectId, enabled) { const p = this.modProfile(profileId); return resourcepacks.setEnabled(p, this.resourcepacksDir(p), projectId, Boolean(enabled), this.loaderIO()); }
+  async resourcepackRemove(profileId, projectId) { const p = this.modProfile(profileId); return resourcepacks.remove(p, this.resourcepacksDir(p), projectId, this.loaderIO()); }
   async ensureJava(meta, signal) {
     return ensureRuntime(meta, path.join(this.root, 'runtimes'), path.join(__dirname, '..', 'runtimes'),
       { safePath, readJson, hashFile, inspectJava, remoteJson, download, pool, atomicJson }, signal,
