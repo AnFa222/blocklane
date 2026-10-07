@@ -231,7 +231,7 @@ function renderProfiles() {
     top.append(el('span', 'stat-icon', '▤'), el('small', '', selected ? 'ACTIVE PROFILE' : loaderNames[p.loader || 'vanilla'].toUpperCase()));
     card.append(top, el('h3', '', p.name), el('p', '', `${profileLabel(p)} · ${p.memory} GB RAM`), el('small', '', profileInstalled(p) ? '● Profile installed' : 'Profile needs installation'));
     const actions = el('div', 'profile-card-actions');
-    actions.append(button(selected ? 'Selected' : 'Select profile', selected ? 'quiet' : 'primary', async () => { state = await api.selectProfile(p.id); render(); }), button('Worlds', 'quiet', () => openWorldManager(p)), button('Edit', 'quiet', () => openProfile(p)), button('Clone', 'quiet', async () => { state = await api.cloneProfile(p.id, `${p.name} copy`); render(); toast('Profile cloned with its worlds and settings.'); }), button('Delete profile', 'quiet', () => confirmDeleteProfile(p)));
+    actions.append(button(selected ? 'Selected' : 'Select profile', selected ? 'quiet' : 'primary', async () => { state = await api.selectProfile(p.id); render(); }), button('Worlds', 'quiet', () => openWorldManager(p)), button('Export pack', 'quiet', () => openModpackExport(p)), button('Edit', 'quiet', () => openProfile(p)), button('Clone', 'quiet', async () => { state = await api.cloneProfile(p.id, `${p.name} copy`); render(); toast('Profile cloned with its worlds and settings.'); }), button('Delete profile', 'quiet', () => confirmDeleteProfile(p)));
     if ((p.loader || 'vanilla') !== 'vanilla') actions.append(button('Install / repair', 'quiet', () => installSelectedProfile(p)), button('Mods folder', 'quiet', () => api.openMods(p.id)));
     if (busy || running) actions.querySelectorAll('button').forEach(b => b.disabled = true);
     card.append(actions); grid.append(card);
@@ -261,6 +261,11 @@ function openWorldTransfer() {
 }
 function selectedWorldNames() { return $$('#worlds-list input:checked').map(input => input.value); }
 function requestWorldDelete() { const names = selectedWorldNames(); if (!names.length) { $('#worlds-error').textContent = 'Choose at least one world.'; return; } pendingWorldNames = names; $('#worlds-error').textContent = ''; $('#world-delete-copy').textContent = `Permanently delete ${names.length} world${names.length === 1 ? '' : 's'}: ${names.join(' · ')}?`; $('#world-delete-confirm').hidden = false; }
+function openModpackExport(profile = currentProfile()) {
+  if (!profile) { toast('Create a profile first.', true); return; } const picker = $('#modpack-export-profile'); picker.replaceChildren();
+  for (const item of state.profiles) { const option = el('option', '', `${item.name} · ${profileLabel(item)}`); option.value = item.id; picker.append(option); }
+  picker.value = profile.id; $('#modpack-export-name').value = profile.name; $('#modpack-export-version').value = '1.0.0'; $('#modpack-export-summary').value = `${profile.name} for Minecraft ${profile.version}`; $('#modpack-export-error').textContent = ''; $('#modpack-export-dialog').showModal();
+}
 async function loadSkins() {
   const request = ++skinLoadRequest, accounts = accountState.accounts.filter(account => account.type !== 'demo'), picker = $('#skins-account');
   const prior = skinAccountId || picker.value || (accountState.selected !== 'demo' ? accountState.selected : ''); picker.replaceChildren();
@@ -450,6 +455,10 @@ $('#check-updates').addEventListener('click', () => guard(() => latestLauncherUp
   ? api.openUpdate(latestLauncherUpdate.installerUrl || latestLauncherUpdate.releaseUrl)
   : checkLauncherUpdates({ announceCurrent: true })));
 $('#new-profile').addEventListener('click', () => openProfile());
+$('#create-custom-pack').addEventListener('click', () => openProfile());
+for (const selector of ['#close-modpack-export', '#cancel-modpack-export']) $(selector).addEventListener('click', () => $('#modpack-export-dialog').close());
+$('#modpack-export-dialog').addEventListener('cancel', event => { event.preventDefault(); event.currentTarget.close(); });
+$('#modpack-export-form').addEventListener('submit', event => { event.preventDefault(); guard(async () => { const result = await api.exportModpack($('#modpack-export-profile').value, { name: $('#modpack-export-name').value.trim(), versionId: $('#modpack-export-version').value.trim(), summary: $('#modpack-export-summary').value.trim() }); if (!result) return; $('#modpack-export-dialog').close(); toast(`${result.name} exported with ${result.files} files (${formatBytes(result.size)}).`); }).catch(error => { $('#modpack-export-error').textContent = error.message; }); });
 $('#close-worlds').addEventListener('click', () => $('#worlds-dialog').close());
 $('#worlds-dialog').addEventListener('cancel', event => { event.preventDefault(); event.currentTarget.close(); });
 $('#import-default-worlds').addEventListener('click', () => runWorldImport(() => api.importDefaultWorlds(worldProfile.id)));

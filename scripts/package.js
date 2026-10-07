@@ -25,7 +25,14 @@ async function main() {
   await fs.writeFile(path.join(app, 'package.json'), JSON.stringify(manifest, null, 2));
   const seen = new Set();
   async function copyDependency(name, from) {
-    const manifestPath = require.resolve(`${name}/package.json`, { paths: [from] });
+    let manifestPath;
+    try { manifestPath = require.resolve(`${name}/package.json`, { paths: [from] }); }
+    catch (error) {
+      if (error.code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') throw error;
+      let folder = path.dirname(require.resolve(name, { paths: [from] }));
+      while (folder !== path.dirname(folder)) { const candidate = path.join(folder, 'package.json'); try { await fs.access(candidate); manifestPath = candidate; break; } catch {} folder = path.dirname(folder); }
+      if (!manifestPath) throw error;
+    }
     const packageRoot = path.dirname(manifestPath);
     if (seen.has(packageRoot)) return;
     seen.add(packageRoot);

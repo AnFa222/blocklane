@@ -19,6 +19,7 @@ const shaders = require('./shaders');
 const resourcepacks = require('./resourcepacks');
 const modpacks = require('./modpacks');
 const worlds = require('./worlds');
+const modpackExport = require('./modpack-export');
 const LOCAL_SKIN_MOD = 'idMHQ4n2';
 
 const MANIFEST = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json';
@@ -547,6 +548,11 @@ class Launcher {
     const instance = path.join(this.root, 'instances', profile.id), manifest = await modpacks.readManifest(instance, this.loaderIO());
     for (const relative of manifest?.managedFiles || []) if (!modpacks.protectedPath(relative)) await fs.rm(path.join(instance, ...modpacks.safePackPath(relative).split('/')), { force: true });
     await fs.rm(path.join(instance, '.blocklane', 'modpack.json'), { force: true }); this.state.profiles = this.state.profiles.filter(item => item.id !== profileId); if (this.state.selectedProfile === profileId) this.state.selectedProfile = this.state.profiles[0]?.id || null; return this.persist();
+  }
+  async exportModpack(profileId, destination, details) {
+    if (this.child || this.working) throw new Error('Wait for the current operation to finish.');
+    const profile = this.profile(profileId); if (typeof destination !== 'string' || path.extname(destination).toLowerCase() !== '.mrpack') throw new Error('Choose a .mrpack destination.');
+    return modpackExport.exportPack(profile, path.join(this.root, 'instances', profile.id), destination, details);
   }
   async prepareLocalSkin(profile, identity, gameDir, signal) {
     if (!identity.local) return { active: false, supported: true };

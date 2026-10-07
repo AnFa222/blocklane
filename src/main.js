@@ -56,6 +56,7 @@ async function start() {
   handle('modpacks:import', async () => { const result = await dialog.showOpenDialog(window, { title: 'Import Modrinth modpack', properties: ['openFile'], filters: [{ name: 'Modrinth modpack', extensions: ['mrpack'] }] }); return result.canceled ? null : launcher.modpackImport(result.filePaths[0]); });
   handle('modpacks:update', profileId => launcher.modpackUpdate(profileId));
   handle('modpacks:remove', profileId => launcher.modpackRemove(profileId));
+  handle('modpacks:export', async (profileId, details) => { const safeName = String(details?.name || 'custom-modpack').replace(/[^a-zA-Z0-9._ -]/g, '').trim().slice(0, 80) || 'custom-modpack'; const result = await dialog.showSaveDialog(window, { title: 'Export custom modpack', defaultPath: `${safeName}.mrpack`, filters: [{ name: 'Modrinth modpack', extensions: ['mrpack'] }] }); return result.canceled || !result.filePath ? null : launcher.exportModpack(profileId, result.filePath, details); });
   handle('shaders:status', profileId => launcher.shaderStatus(profileId));
   handle('shaders:search', (profileId, query, offset) => launcher.shaderSearch(profileId, query, offset));
   handle('shaders:list', profileId => launcher.shaderList(profileId));
