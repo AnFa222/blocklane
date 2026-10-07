@@ -18,7 +18,7 @@ The preview uses test profile data. It does not show an authenticated game sessi
 - Fabric, Quilt, Forge, NeoForge, and LiteLoader profiles with compatible loader catalogs, pinned builds, installation/repair, and separate mods folders.
 - Modrinth mod manager with loader/version-filtered search, checksum-verified installs, required dependencies, enable/disable, updates, removal, and local JAR visibility.
 - Modrinth modpack browser and local `.mrpack` import with automatic profiles, checksum verification, staged installation, updates, rollback, and preservation of worlds and personal settings.
-- Custom Modrinth `.mrpack` creation and export from any compatible profile, excluding worlds and private player data.
+- Separate custom-pack projects with their own creation wizard and standard `.mrpack` export, excluding worlds and private player data.
 - A Shaders tab that appears for profiles with Iris (Fabric/Quilt) or Oculus (Forge/NeoForge), with compatible Modrinth shader packs filtered to the profile Minecraft version and stored in its own `shaderpacks` folder.
 - Bundled Java 25 in portable Windows builds; automatic installation of matching Mojang runtimes for other versions.
 - Automatic GitHub release checking at startup and a manual header check, with a direct link to the published installer when a newer version is available.

@@ -30,7 +30,7 @@ async function collect(instance) {
   return files.sort((a, b) => a.relative.localeCompare(b.relative));
 }
 async function exportPack(profile, instance, destination, input) {
-  const details = metadata(input), files = await collect(instance); if (!files.length) throw new Error('This profile has no mods, configuration, resource packs, shaders, or scripts to export.');
+  const details = metadata(input), files = await collect(instance);
   const index = { formatVersion: 1, game: 'minecraft', versionId: details.versionId, name: details.name, summary: details.summary, files: [], dependencies: dependencies(profile) };
   await fs.mkdir(path.dirname(destination), { recursive: true }); const temp = `${destination}.${process.pid}.tmp`; await fs.rm(temp, { force: true });
   const zip = new yazl.ZipFile(); zip.addBuffer(Buffer.from(JSON.stringify(index, null, 2)), 'modrinth.index.json');

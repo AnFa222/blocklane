@@ -20,6 +20,7 @@ const resourcepacks = require('./resourcepacks');
 const modpacks = require('./modpacks');
 const worlds = require('./worlds');
 const modpackExport = require('./modpack-export');
+const customPacks = require('./custom-packs');
 const LOCAL_SKIN_MOD = 'idMHQ4n2';
 
 const MANIFEST = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json';
@@ -549,11 +550,25 @@ class Launcher {
     for (const relative of manifest?.managedFiles || []) if (!modpacks.protectedPath(relative)) await fs.rm(path.join(instance, ...modpacks.safePackPath(relative).split('/')), { force: true });
     await fs.rm(path.join(instance, '.blocklane', 'modpack.json'), { force: true }); this.state.profiles = this.state.profiles.filter(item => item.id !== profileId); if (this.state.selectedProfile === profileId) this.state.selectedProfile = this.state.profiles[0]?.id || null; return this.persist();
   }
-  async exportModpack(profileId, destination, details) {
+  async customPackList() { return customPacks.list(this.root); }
+  async customPackCreate(input) {
     if (this.child || this.working) throw new Error('Wait for the current operation to finish.');
-    const profile = this.profile(profileId); if (typeof destination !== 'string' || path.extname(destination).toLowerCase() !== '.mrpack') throw new Error('Choose a .mrpack destination.');
-    return modpackExport.exportPack(profile, path.join(this.root, 'instances', profile.id), destination, details);
+    const pack = customPacks.validate(input), catalog = await this.catalog(); if (!catalog.versions.some(item => item.id === pack.version)) throw new Error('Choose a version from the official catalog.');
+    if (pack.loader !== 'vanilla' && !(await this.loaderVersions(pack.loader, pack.version)).some(item => item.version === pack.loaderVersion)) throw new Error('Choose a compatible loader version.');
+    return customPacks.save(this.root, pack);
   }
+  async customPackDelete(id) { if (this.child || this.working) throw new Error('Wait for the current operation to finish.'); await customPacks.remove(this.root, validId(id)); return this.customPackList(); }
+  async customPackExport(id, destination) {
+    if (this.child || this.working) throw new Error('Wait for the current operation to finish.'); const pack = await customPacks.get(this.root, validId(id));
+    return modpackExport.exportPack(pack, path.join(customPacks.root(this.root, pack.id), 'instance'), destination, pack);
+  }
+  async customPackModSearch(id, query = '', offset = 0) { const pack = await customPacks.get(this.root, validId(id)); return mods.search(pack, query, offset, this.loaderIO()); }
+  async customPackModList(id) { const pack = await customPacks.get(this.root, validId(id)); return mods.list(pack, path.join(customPacks.root(this.root, pack.id), 'instance', 'mods'), this.loaderIO()); }
+  async customPackModInstall(id, projectId) {
+    const pack = await customPacks.get(this.root, validId(id)), dir = path.join(customPacks.root(this.root, pack.id), 'instance', 'mods');
+    return this.runContentTask('custom-mod', pack.id, projectId, async (signal, report) => this.withContentLock(`mods:${dir}`, async () => { await mods.installProject(pack, projectId, dir, this.loaderIO(), signal, report); return this.customPackModList(pack.id); }));
+  }
+  async customPackModRemove(id, projectId) { if (this.working || this.child) throw new Error('Wait for the current operation to finish.'); const pack = await customPacks.get(this.root, validId(id)), dir = path.join(customPacks.root(this.root, pack.id), 'instance', 'mods'); return mods.remove(pack, dir, projectId, this.loaderIO()); }
   async prepareLocalSkin(profile, identity, gameDir, signal) {
     if (!identity.local) return { active: false, supported: true };
     const source = path.join(this.root, 'skins', `${identity.uuid}.png`);

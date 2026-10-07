@@ -56,7 +56,15 @@ async function start() {
   handle('modpacks:import', async () => { const result = await dialog.showOpenDialog(window, { title: 'Import Modrinth modpack', properties: ['openFile'], filters: [{ name: 'Modrinth modpack', extensions: ['mrpack'] }] }); return result.canceled ? null : launcher.modpackImport(result.filePaths[0]); });
   handle('modpacks:update', profileId => launcher.modpackUpdate(profileId));
   handle('modpacks:remove', profileId => launcher.modpackRemove(profileId));
-  handle('modpacks:export', async (profileId, details) => { const safeName = String(details?.name || 'custom-modpack').replace(/[^a-zA-Z0-9._ -]/g, '').trim().slice(0, 80) || 'custom-modpack'; const result = await dialog.showSaveDialog(window, { title: 'Export custom modpack', defaultPath: `${safeName}.mrpack`, filters: [{ name: 'Modrinth modpack', extensions: ['mrpack'] }] }); return result.canceled || !result.filePath ? null : launcher.exportModpack(profileId, result.filePath, details); });
+  handle('custom-packs:list', () => launcher.customPackList());
+  handle('custom-packs:create', input => launcher.customPackCreate(input));
+  handle('custom-packs:delete', id => launcher.customPackDelete(id));
+  handle('custom-packs:export', async id => { const pack = (await launcher.customPackList()).find(item => item.id === id); if (!pack) throw new Error('Custom pack does not exist.'); const safeName = pack.name.replace(/[^a-zA-Z0-9._ -]/g, '').trim().slice(0, 80) || 'custom-modpack'; const result = await dialog.showSaveDialog(window, { title: 'Export custom modpack', defaultPath: `${safeName}-${pack.versionId}.mrpack`, filters: [{ name: 'Modrinth modpack', extensions: ['mrpack'] }] }); return result.canceled || !result.filePath ? null : launcher.customPackExport(id, result.filePath); });
+  handle('custom-packs:folder', async id => { const pack = (await launcher.customPackList()).find(item => item.id === id); if (!pack) throw new Error('Custom pack does not exist.'); const folder = path.join(launcher.root, 'custom-packs', pack.id, 'instance'); await fs.mkdir(folder, { recursive: true }); const error = await shell.openPath(folder); if (error) throw new Error(error); });
+  handle('custom-packs:mods-search', (id, query, offset) => launcher.customPackModSearch(id, query, offset));
+  handle('custom-packs:mods-list', id => launcher.customPackModList(id));
+  handle('custom-packs:mods-install', (id, projectId) => launcher.customPackModInstall(id, projectId));
+  handle('custom-packs:mods-remove', (id, projectId) => launcher.customPackModRemove(id, projectId));
   handle('shaders:status', profileId => launcher.shaderStatus(profileId));
   handle('shaders:search', (profileId, query, offset) => launcher.shaderSearch(profileId, query, offset));
   handle('shaders:list', profileId => launcher.shaderList(profileId));
