@@ -18,6 +18,7 @@ const mods = require('./mods');
 const shaders = require('./shaders');
 const resourcepacks = require('./resourcepacks');
 const modpacks = require('./modpacks');
+const worlds = require('./worlds');
 const LOCAL_SKIN_MOD = 'idMHQ4n2';
 
 const MANIFEST = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json';
@@ -351,6 +352,24 @@ class Launcher {
     const from = path.join(this.root, 'instances', source.id), to = path.join(this.root, 'instances', copy.id);
     await fs.cp(from, to, { recursive: true, force: false, errorOnExist: true }).catch(error => { if (error.code !== 'ENOENT') throw error; });
     this.state.profiles.push(copy); this.state.selectedProfile = copy.id; return this.persist();
+  }
+  async worlds(id) { const profile = this.profile(id); return worlds.list(path.join(this.root, 'instances', profile.id, 'saves')); }
+  async importWorldFolders(id, folders) {
+    if (this.child || this.working) throw new Error('Close Minecraft before importing worlds.');
+    const profile = this.profile(id); if (!Array.isArray(folders) || !folders.length || folders.some(folder => typeof folder !== 'string')) throw new Error('Choose a world folder.');
+    return { imported: await worlds.copyFolders(folders, path.join(this.root, 'instances', profile.id, 'saves')) };
+  }
+  async importWorldZip(id, archive) {
+    if (this.child || this.working) throw new Error('Close Minecraft before importing worlds.');
+    const profile = this.profile(id); if (typeof archive !== 'string' || path.extname(archive).toLowerCase() !== '.zip') throw new Error('Choose a ZIP archive.');
+    const staging = path.join(this.root, 'world-staging', crypto.randomUUID());
+    return { imported: await worlds.importZip(archive, path.join(this.root, 'instances', profile.id, 'saves'), staging) };
+  }
+  async transferWorlds(sourceId, destinationId, names, move = false) {
+    if (this.child || this.working) throw new Error('Close Minecraft before transferring worlds.');
+    const source = this.profile(sourceId), destination = this.profile(destinationId); if (source.id === destination.id) throw new Error('Choose a different destination profile.');
+    const transferred = await worlds.transfer(path.join(this.root, 'instances', source.id, 'saves'), path.join(this.root, 'instances', destination.id, 'saves'), names, Boolean(move));
+    return { transferred, moved: Boolean(move), destinationId: destination.id };
   }
   async backupProfile(id, name = '') {
     if (this.child || this.working) throw new Error('Wait for the current operation to finish.');

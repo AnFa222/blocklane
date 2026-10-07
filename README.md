@@ -14,6 +14,7 @@ The preview uses test profile data. It does not show an authenticated game sessi
 - Installation of every version in Mojang's Java Edition catalog, including releases, snapshots, old Beta, and old Alpha builds, with legacy asset layouts and matching Java runtimes.
 - Checksum validation, reuse and repair of existing files, cancellation, and retries with bounded concurrent downloads.
 - Profiles with pinned game versions, RAM allocation, Java selection, and separate worlds/settings.
+- Per-profile world manager with copy/move transfers, default-launcher imports, folder imports, and secure ZIP imports.
 - Fabric, Quilt, Forge, NeoForge, and LiteLoader profiles with compatible loader catalogs, pinned builds, installation/repair, and separate mods folders.
 - Modrinth mod manager with loader/version-filtered search, checksum-verified installs, required dependencies, enable/disable, updates, removal, and local JAR visibility.
 - Modrinth modpack browser and local `.mrpack` import with automatic profiles, checksum verification, staged installation, updates, rollback, and preservation of worlds and personal settings.

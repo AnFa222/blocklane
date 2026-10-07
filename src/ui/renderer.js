@@ -231,7 +231,7 @@ function renderProfiles() {
     top.append(el('span', 'stat-icon', '▤'), el('small', '', selected ? 'ACTIVE PROFILE' : loaderNames[p.loader || 'vanilla'].toUpperCase()));
     card.append(top, el('h3', '', p.name), el('p', '', `${profileLabel(p)} · ${p.memory} GB RAM`), el('small', '', profileInstalled(p) ? '● Profile installed' : 'Profile needs installation'));
     const actions = el('div', 'profile-card-actions');
-    actions.append(button(selected ? 'Selected' : 'Select profile', selected ? 'quiet' : 'primary', async () => { state = await api.selectProfile(p.id); render(); }), button('Edit', 'quiet', () => openProfile(p)), button('Clone', 'quiet', async () => { state = await api.cloneProfile(p.id, `${p.name} copy`); render(); toast('Profile cloned with its worlds and settings.'); }), button('Delete profile', 'quiet', () => confirmDeleteProfile(p)));
+    actions.append(button(selected ? 'Selected' : 'Select profile', selected ? 'quiet' : 'primary', async () => { state = await api.selectProfile(p.id); render(); }), button('Worlds', 'quiet', () => openWorldManager(p)), button('Edit', 'quiet', () => openProfile(p)), button('Clone', 'quiet', async () => { state = await api.cloneProfile(p.id, `${p.name} copy`); render(); toast('Profile cloned with its worlds and settings.'); }), button('Delete profile', 'quiet', () => confirmDeleteProfile(p)));
     if ((p.loader || 'vanilla') !== 'vanilla') actions.append(button('Install / repair', 'quiet', () => installSelectedProfile(p)), button('Mods folder', 'quiet', () => api.openMods(p.id)));
     if (busy || running) actions.querySelectorAll('button').forEach(b => b.disabled = true);
     card.append(actions); grid.append(card);
@@ -243,6 +243,21 @@ async function confirmDeleteProfile(p) {
   const card = [...$('#profiles-grid').children].find(c => c.dataset.id === p.id);
   const actions = card.querySelector('.profile-card-actions'); actions.replaceChildren();
   actions.append(el('small', '', 'Remove profile? Worlds are kept.'), button('Keep', 'quiet', () => renderProfiles()), button('Remove', 'primary', async () => { state = await api.deleteProfile(p.id); render(); }));
+}
+
+let worldProfile = null, profileWorlds = [], pendingWorldNames = [];
+async function refreshWorldManager() {
+  if (!worldProfile) return; profileWorlds = await api.listWorlds(worldProfile.id); const list = $('#worlds-list'); list.replaceChildren();
+  if (!profileWorlds.length) list.append(emptyMods('No worlds in this profile', 'Import worlds from the default launcher, another folder, or a ZIP archive.'));
+  for (const world of profileWorlds) { const label = el('label', 'world-row'), input = document.createElement('input'), copy = el('span', 'world-row-copy'); input.type = 'checkbox'; input.value = world.name; copy.append(el('strong', '', world.name), el('small', '', `${new Date(world.modifiedAt).toLocaleString()} · ${formatBytes(world.size)}`)); label.append(input, copy); list.append(label); }
+  $('#transfer-worlds').disabled = !profileWorlds.length || state.profiles.length < 2;
+}
+async function openWorldManager(profile) { worldProfile = profile; $('#worlds-title').textContent = `${profile.name} worlds`; $('#worlds-error').textContent = ''; $('#worlds-dialog').showModal(); await refreshWorldManager(); }
+async function runWorldImport(action) { $('#worlds-error').textContent = ''; try { const result = await action(); if (!result) return; await refreshWorldManager(); toast(`${result.imported.length} world${result.imported.length === 1 ? '' : 's'} imported.`); } catch (error) { $('#worlds-error').textContent = error.message; } }
+function openWorldTransfer() {
+  pendingWorldNames = $$('#worlds-list input:checked').map(input => input.value); if (!pendingWorldNames.length) { $('#worlds-error').textContent = 'Choose at least one world.'; return; }
+  const destination = $('#world-destination'); destination.replaceChildren(); for (const profile of state.profiles.filter(profile => profile.id !== worldProfile.id)) { const option = el('option', '', profile.name); option.value = profile.id; destination.append(option); }
+  $('#world-transfer-summary').textContent = `${pendingWorldNames.length} selected: ${pendingWorldNames.join(' · ')}`; $('#world-transfer-error').textContent = ''; $('#world-transfer-dialog').showModal();
 }
 async function loadSkins() {
   const request = ++skinLoadRequest, accounts = accountState.accounts.filter(account => account.type !== 'demo'), picker = $('#skins-account');
@@ -433,6 +448,15 @@ $('#check-updates').addEventListener('click', () => guard(() => latestLauncherUp
   ? api.openUpdate(latestLauncherUpdate.installerUrl || latestLauncherUpdate.releaseUrl)
   : checkLauncherUpdates({ announceCurrent: true })));
 $('#new-profile').addEventListener('click', () => openProfile());
+$('#close-worlds').addEventListener('click', () => $('#worlds-dialog').close());
+$('#worlds-dialog').addEventListener('cancel', event => { event.preventDefault(); event.currentTarget.close(); });
+$('#import-default-worlds').addEventListener('click', () => runWorldImport(() => api.importDefaultWorlds(worldProfile.id)));
+$('#import-world-folder').addEventListener('click', () => runWorldImport(() => api.importWorldFolder(worldProfile.id)));
+$('#import-world-zip').addEventListener('click', () => runWorldImport(() => api.importWorldZip(worldProfile.id)));
+$('#transfer-worlds').addEventListener('click', openWorldTransfer);
+for (const selector of ['#close-world-transfer', '#cancel-world-transfer']) $(selector).addEventListener('click', () => $('#world-transfer-dialog').close());
+$('#world-transfer-dialog').addEventListener('cancel', event => { event.preventDefault(); event.currentTarget.close(); });
+$('#world-transfer-form').addEventListener('submit', event => { event.preventDefault(); guard(async () => { const destination = $('#world-destination').value, move = $('[name="world-transfer-mode"]:checked').value === 'move'; const result = await api.transferWorlds(worldProfile.id, destination, pendingWorldNames, move); $('#world-transfer-dialog').close(); await refreshWorldManager(); toast(`${result.transferred.length} world${result.transferred.length === 1 ? '' : 's'} ${move ? 'moved' : 'copied'}.`); }).catch(error => { $('#world-transfer-error').textContent = error.message; }); });
 $('#backups-profile').addEventListener('change', () => guard(loadBackups));
 $('#screenshots-profile').addEventListener('change', () => guard(loadScreenshots));
 $('#create-backup').addEventListener('click', () => { $('#backup-name').value = 'World backup'; $('#backup-error').textContent = ''; $('#backup-dialog').showModal(); $('#backup-name').focus(); });

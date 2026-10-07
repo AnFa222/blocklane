@@ -72,6 +72,11 @@ async function start() {
   handle('profile:select', id => launcher.selectProfile(id));
   handle('profile:delete', id => launcher.deleteProfile(id));
   handle('profile:clone', (id, name) => launcher.cloneProfile(id, name));
+  handle('profile:worlds', id => launcher.worlds(id));
+  handle('profile:world-transfer', (sourceId, destinationId, names, move) => launcher.transferWorlds(sourceId, destinationId, names, move));
+  handle('profile:world-import-default', id => launcher.importWorldFolders(id, [path.join(app.getPath('appData'), '.minecraft', 'saves')]));
+  handle('profile:world-import-folder', async id => { const result = await dialog.showOpenDialog(window, { title: 'Import Minecraft world folder', properties: ['openDirectory', 'multiSelections'] }); return result.canceled ? null : launcher.importWorldFolders(id, result.filePaths); });
+  handle('profile:world-import-zip', async id => { const result = await dialog.showOpenDialog(window, { title: 'Import Minecraft world ZIP', properties: ['openFile', 'multiSelections'], filters: [{ name: 'ZIP archives', extensions: ['zip'] }] }); if (result.canceled) return null; const imported = []; for (const file of result.filePaths) imported.push(...(await launcher.importWorldZip(id, file)).imported); return { imported }; });
   handle('profile:backup', (id, name) => launcher.backupProfile(id, name));
   handle('profile:backups', id => launcher.backups(id));
   handle('profile:restore-backup', (id, backupId, worlds) => launcher.restoreBackup(id, backupId, worlds));

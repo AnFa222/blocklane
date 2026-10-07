@@ -1,6 +1,6 @@
 {
   "name": "blocklane",
-  "version": "0.4.24",
+  "version": "0.4.25",
   "description": "A focused Minecraft Java Edition launcher and version manager",
   "main": "src/main.js",
   "author": "",
