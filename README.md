@@ -18,7 +18,7 @@ The preview uses test profile data. It does not show an authenticated game sessi
 - Modrinth mod manager with loader/version-filtered search, checksum-verified installs, required dependencies, enable/disable, updates, removal, and local JAR visibility.
 - A Shaders tab that appears for profiles with Iris (Fabric) or Oculus (Forge/NeoForge), with Iris-compatible Modrinth shader packs filtered to the profile Minecraft version and stored in its own `shaderpacks` folder.
 - Bundled Java 25 in portable Windows builds; automatic installation of matching Mojang runtimes for other versions.
-- GitHub release update checking from the header, with a direct link to the published installer when a newer version is available.
+- Automatic GitHub release checking at startup and a manual header check, with a direct link to the published installer when a newer version is available.
 - Explicit Demo mode; Microsoft account switching/removal, entitlement checks, and encrypted local refresh-token storage.
 - Electron sandboxing, context isolation, a restricted renderer bridge, and token redaction in game logs.
 
@@ -71,7 +71,7 @@ Data lives under `%APPDATA%/blocklane`. Account tokens are encrypted locally wit
 
 ## Scope
 
-Java Edition supports Vanilla, Fabric, Forge, and NeoForge profiles. Bedrock, pre-1.13 compatibility, Quilt, modpack import, and automatic launcher updates are future work. Historical snapshots may need additional compatibility testing. Full authenticated gameplay is pending Minecraft Services access approval.
+Java Edition supports Vanilla, Fabric, Forge, and NeoForge profiles. Bedrock, pre-1.13 compatibility, Quilt, modpack import, and in-app update installation are future work. Historical snapshots may need additional compatibility testing. Full authenticated gameplay is pending Minecraft Services access approval.
 
 See [Microsoft application setup](MICROSOFT-SETUP.md), [privacy information](PRIVACY.md), and [security reporting](SECURITY.md).
 

@@ -4,6 +4,7 @@ const api = window.launcher;
 let state = { profiles: [], installed: [], selectedProfile: null };
 let catalog = { versions: [], latest: {} };
 let filter = 'release', limit = 40, busy = false, running = false, toastTimer;
+let latestLauncherUpdate = null, launcherUpdateCheckPending = false;
 let accountState = { selected: 'demo', configured: false, accounts: [{ id: 'demo', name: 'Demo player', type: 'demo' }] };
 let skinLibrary = [], skinAccountId = null, skinLoadRequest = 0;
 let loginStarting = false;
@@ -347,7 +348,29 @@ $('#search').addEventListener('input', () => { limit = 40; renderVersions(); });
 $('#load-more').addEventListener('click', () => { limit += 40; renderVersions(); });
 $('#refresh').addEventListener('click', () => guard(() => loadCatalog(true)));
 $('#open-folder').addEventListener('click', () => guard(() => api.openFolder()));
-$('#check-updates').addEventListener('click', () => guard(async () => { const result = await api.checkUpdates(); if (!result.available) return toast(`Blocklane ${result.current} is up to date.`); const button = $('#check-updates'); button.textContent = `Download ${result.latest}`; button.className = 'primary small'; button.onclick = () => guard(() => api.openUpdate(result.installerUrl || result.releaseUrl)); toast(`Blocklane ${result.latest} is available.`); }));
+async function checkLauncherUpdates({ announceCurrent = false, silent = false } = {}) {
+  if (launcherUpdateCheckPending) return;
+  const button = $('#check-updates');
+  launcherUpdateCheckPending = true; button.disabled = true;
+  if (!latestLauncherUpdate?.available) button.textContent = 'Checking…';
+  try {
+    const result = await api.checkUpdates(); latestLauncherUpdate = result;
+    if (result.available) {
+      button.textContent = `Download ${result.latest}`; button.className = 'primary small';
+      toast(`Blocklane ${result.latest} is available.`);
+    } else {
+      button.textContent = 'Check for updates'; button.className = 'quiet small';
+      if (announceCurrent) toast(`Blocklane ${result.current} is up to date.`);
+    }
+  } catch (error) {
+    button.textContent = 'Check for updates'; button.className = 'quiet small';
+    if (silent) log(`Automatic update check failed: ${error.message}`);
+    else throw error;
+  } finally { launcherUpdateCheckPending = false; button.disabled = false; }
+}
+$('#check-updates').addEventListener('click', () => guard(() => latestLauncherUpdate?.available
+  ? api.openUpdate(latestLauncherUpdate.installerUrl || latestLauncherUpdate.releaseUrl)
+  : checkLauncherUpdates({ announceCurrent: true })));
 $('#new-profile').addEventListener('click', () => openProfile());
 $('#backups-profile').addEventListener('change', () => guard(loadBackups));
 $('#screenshots-profile').addEventListener('change', () => guard(loadScreenshots));
@@ -431,6 +454,7 @@ async function boot() {
   state = await api.state(); busy = state.busy; running = state.running; render();
   try { accountState = await api.accounts(); render(); } catch (error) { toast(error.message, true); }
   $('#stat-java').textContent = 'Managed'; $('#java-caption').textContent = 'Java 25 included · automatic selection';
+  void checkLauncherUpdates({ silent: true });
   await guard(() => loadCatalog());
 }
 guard(boot);
