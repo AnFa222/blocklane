@@ -27,7 +27,8 @@ function installed(id) { return state.installed.find(v => v.id === id); }
 function currentProfile() { return state.profiles.find(p => p.id === state.selectedProfile); }
 function profileInstalled(p) { return p && installed(p.version) && ((p.loader || 'vanilla') === 'vanilla' || state.installed.some(v => v.baseVersion === p.version && v.loader === p.loader && v.loaderVersion === p.loaderVersion)); }
 function profileLabel(p) { return `${loaderNames[p.loader || 'vanilla']} ${p.version}${p.loaderVersion ? ' · ' + p.loaderVersion : ''}`; }
-function supported(v) { return ['release', 'snapshot'].includes(v.type) && (v.id === '1.12.2' || v.releaseTime >= '2018-07-18'); }
+function supported(v) { return ['release', 'snapshot', 'old_beta', 'old_alpha'].includes(v.type); }
+function versionTypeLabel(type) { return ({ release: 'release', snapshot: 'snapshot', old_beta: 'old beta', old_alpha: 'old alpha' })[type] || type; }
 
 function render() {
   $('#nav-installed').textContent = state.installed.length;
@@ -168,14 +169,14 @@ function renderAccounts() {
 function renderVersions() {
   const search = $('#search').value.trim().toLowerCase();
   const modded = filter === 'installed' ? state.installed.filter(v => v.type === 'modded').map(v => ({ ...v, releaseTime: v.installedAt })) : [];
-  const rows = [...catalog.versions.filter(v => (filter === 'installed' ? installed(v.id) : v.type === filter)), ...modded].filter(v => `${v.id} ${v.loader || ''} ${v.loaderVersion || ''}`.toLowerCase().includes(search));
+  const rows = [...catalog.versions.filter(v => filter === 'installed' ? installed(v.id) : filter === 'legacy' ? ['old_beta', 'old_alpha'].includes(v.type) : v.type === filter), ...modded].filter(v => `${v.id} ${v.loader || ''} ${v.loaderVersion || ''}`.toLowerCase().includes(search));
   const list = $('#version-list'); list.replaceChildren();
   if (!rows.length) { const empty = el('div', 'empty'); empty.append(el('h3', '', catalog.versions.length ? 'No versions here yet.' : 'Catalog unavailable'), el('p', '', catalog.versions.length ? 'Try another filter, or install your first version.' : 'Connect to the internet and refresh to load Minecraft versions.')); list.append(empty); }
   for (const v of rows.slice(0, limit)) {
     const item = installed(v.id), row = el('div', 'version-row');
     const name = el('div', 'version-name'), label = el('div');
     label.append(el('strong', '', v.type === 'modded' ? `${loaderNames[v.loader]} ${v.baseVersion} · ${v.loaderVersion}` : v.id), el('small', '', v.id === catalog.latest.release ? 'LATEST RELEASE' : v.id === catalog.latest.snapshot ? 'LATEST SNAPSHOT' : v.type.toUpperCase())); name.append(el('span', 'cube', '◇'), label);
-    row.append(name, el('span', 'version-date', new Date(v.releaseTime).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })), el('span', `badge${item ? ' ready' : ''}`, item ? '● Installed' : supported(v) ? 'Available' : 'Legacy · later'));
+    row.append(name, el('span', 'version-date', new Date(v.releaseTime).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })), el('span', `badge${item ? ' ready' : ''}`, item ? '● Installed' : 'Available'));
     const actions = el('div', 'row-actions');
     if (item) {
       if (v.type !== 'modded') actions.append(button('Repair', 'quiet', () => install(v.id)));
@@ -184,7 +185,7 @@ function renderVersions() {
         else openProfile(null, v.id);
       }));
       const remove = button('×', 'quiet', async () => { state = await api.removeVersion(v.id); render(); }); remove.title = `Remove ${v.id}`; remove.setAttribute('aria-label', remove.title); actions.append(remove);
-    } else { const b = button('↓ Install', 'quiet', () => install(v.id)); b.disabled = !supported(v); if (!supported(v)) b.title = 'Legacy versions are planned for a later release.'; actions.append(b); }
+    } else actions.append(button('↓ Install', 'quiet', () => install(v.id)));
     if (busy || running) actions.querySelectorAll('button').forEach(b => b.disabled = true);
     row.append(actions); list.append(row);
   }
@@ -261,11 +262,23 @@ async function loadCatalog(refresh = false) {
   try {
     catalog = await api.catalog(refresh);
     $('#latest-version').textContent = catalog.latest.release;
-    $('#catalog-note').textContent = `${catalog.versions.length} official versions · Minecraft 1.12.2 and 1.13+ supported · ${catalog.cached ? 'Offline catalog — connect to install' : 'Source: Mojang'} `;
+    $('#catalog-note').textContent = `${catalog.versions.length} official versions · Releases, snapshots, Beta and Alpha · ${catalog.cached ? 'Offline catalog — connect to install' : 'Source: Mojang'} `;
     $('#connection-label').textContent = catalog.cached ? 'Cached version catalog' : 'Mojang catalog connected';
     render();
   } catch (error) { $('#connection-label').textContent = 'Catalog connection unavailable'; $('#catalog-note').textContent = error.message; throw error; }
   finally { $('#refresh').disabled = false; }
+}
+
+function renderProfileVersions(query = '', preferred = '') {
+  const select = $('#profile-version'), search = query.trim().toLowerCase();
+  const matches = catalog.versions.filter(supported).filter(v => `${v.id} ${versionTypeLabel(v.type)} ${String(v.releaseTime).slice(0, 10)}`.toLowerCase().includes(search));
+  const previous = preferred || select.value;
+  select.replaceChildren();
+  for (const v of matches) { const option = el('option', '', `${v.id} · ${versionTypeLabel(v.type)}`); option.value = v.id; select.append(option); }
+  select.value = matches.some(v => v.id === previous) ? previous : matches[0]?.id || '';
+  $('#profile-version-note').textContent = `${matches.length} of ${catalog.versions.filter(supported).length} official versions shown${search ? ` for “${query.trim()}”` : ''}.`;
+  $('#save-profile').disabled = !select.value || loaderLoading;
+  return select.value;
 }
 
 function openProfile(profile = null, version = null) {
@@ -273,9 +286,8 @@ function openProfile(profile = null, version = null) {
   $('#profile-id').value = profile?.id || '';
   $('#dialog-title').textContent = profile?.id ? 'Edit profile' : 'New profile';
   $('#profile-name').value = profile?.name || (version ? `Vanilla ${version}` : 'My survival world');
-  const select = $('#profile-version'); select.replaceChildren();
-  for (const v of catalog.versions.filter(supported)) { const option = el('option', '', `${v.id}${v.type === 'snapshot' ? ' · snapshot' : ''}`); option.value = v.id; select.append(option); }
-  select.value = profile?.version || version || catalog.latest.release;
+  $('#profile-version-search').value = '';
+  renderProfileVersions('', profile?.version || version || catalog.latest.release);
   $('#profile-memory').value = String(profile?.memory || 4);
   $('#profile-java').value = !profile?.javaPath || ['java', 'java.exe', 'auto'].includes(profile.javaPath.toLowerCase()) ? 'auto' : profile.javaPath;
   $('#profile-java-args').value = (profile?.javaArgs || []).join('\n');
@@ -306,6 +318,11 @@ async function loadLoaderVersions(selectedVersion) {
 }
 $('#profile-loader').addEventListener('change', () => loadLoaderVersions());
 $('#profile-version').addEventListener('change', () => loadLoaderVersions());
+$('#profile-version-search').addEventListener('input', () => {
+  const before = $('#profile-version').value;
+  const selected = renderProfileVersions($('#profile-version-search').value, before);
+  if (selected !== before) loadLoaderVersions();
+});
 $('#profile-memory').addEventListener('change', () => { $('#profile-jvm-args').textContent = profileJvmArguments(Number($('#profile-memory').value)).join('\n'); });
 $('#mods-profile').addEventListener('change', () => { modState = null; shaderState = null; resourcepackState = null; shaderAdapter = null; modSearchState = { query: '', offset: 0, total: 0, hits: [] }; shaderSearchState = { query: '', offset: 0, total: 0, hits: [] }; resourcepackSearchState = { query: '', offset: 0, total: 0, hits: [] }; guard(loadModsView); });
 $$('[data-library-tab]').forEach(tab => tab.addEventListener('click', () => { if (tab.dataset.libraryTab === 'shaders' && !shaderAdapter) return; libraryTab = tab.dataset.libraryTab; $('#mod-search').value = ''; guard(loadModsView); }));

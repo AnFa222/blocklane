@@ -175,6 +175,30 @@ async function extractNatives(archive, destination, exclude, signal) {
   } finally { zip.close(); }
 }
 
+async function materializeAssets(index, root, signal) {
+  const destinations = [];
+  if (index.virtual) destinations.push(path.join(root, 'assets', 'virtual', index.id || 'legacy'));
+  if (index.map_to_resources) destinations.push(path.join(root, 'resources'));
+  if (!destinations.length) return 'objects';
+  const entries = Object.entries(index.objects || {});
+  await pool(entries, async ([name, asset]) => {
+    signal?.throwIfAborted();
+    if (!/^[a-f0-9]{40}$/.test(asset.hash || '')) throw new Error('Invalid legacy asset checksum.');
+    const source = safePath(path.join(root, 'assets', 'objects'), `${asset.hash.slice(0, 2)}/${asset.hash}`);
+    for (const base of destinations) {
+      const destination = safePath(base, name);
+      await fs.mkdir(path.dirname(destination), { recursive: true });
+      await fs.rm(destination, { force: true });
+      try { await fs.link(source, destination); }
+      catch (error) {
+        if (!['EXDEV', 'EPERM', 'EACCES'].includes(error.code)) throw error;
+        await fs.copyFile(source, destination);
+      }
+    }
+  }, signal, 8);
+  return index.map_to_resources ? 'resources' : 'virtual';
+}
+
 function libraryPlan(meta, root, system = host) {
   const artifacts = [], natives = [];
   for (const lib of meta.libraries) {
@@ -501,7 +525,6 @@ class Launcher {
       const indexPath = safePath(path.join(this.root, 'assets', 'indexes'), validId(meta.assetIndex.id) + '.json');
       await download(meta.assetIndex, indexPath, signal);
       const assetIndex = await readJson(indexPath);
-      if (assetIndex.virtual || assetIndex.map_to_resources) throw new Error('Legacy asset layouts are not supported in this release.');
       const jobs = [
         { ...meta.downloads.client, dest: path.join(versionDir, `${id}.jar`) },
         ...plan.artifacts, ...plan.natives,
@@ -515,6 +538,11 @@ class Launcher {
       let done = 0;
       this.progress(`Installing ${id}`, done, unique.length);
       await pool(unique, async job => { await download(job, job.dest, signal); this.progress(`Installing ${id}`, ++done, unique.length); }, signal);
+      if (assetIndex.virtual || assetIndex.map_to_resources) {
+        this.progress('Preparing legacy assets', 0, 1);
+        meta.assetLayout = await materializeAssets({ ...assetIndex, id: meta.assetIndex.id }, this.root, signal);
+        await atomicJson(metaFile, meta);
+      }
       this.progress('Preparing native libraries', 0, 1);
       const nativesDir = path.join(versionDir, 'natives');
       await fs.mkdir(nativesDir, { recursive: true });
@@ -569,7 +597,8 @@ class Launcher {
         natives_directory: path.join(baseDir, 'natives'), launcher_name: 'Blocklane', launcher_version: launcherVersion,
         classpath: classpath.join(path.delimiter), classpath_separator: path.delimiter, library_directory: path.join(this.root, 'libraries'),
         auth_player_name: identity.name, version_name: launchId, game_directory: gameDir, assets_root: path.join(this.root, 'assets'),
-        assets_index_name: meta.assetIndex.id, auth_uuid: identity.uuid, auth_access_token: identity.accessToken,
+        assets_index_name: meta.assetIndex.id, game_assets: meta.assetLayout === 'resources' ? path.join(this.root, 'resources') : path.join(this.root, 'assets', 'virtual', meta.assetIndex.id),
+        auth_uuid: identity.uuid, auth_access_token: identity.accessToken, auth_session: `token:${identity.accessToken}:${identity.uuid}`,
         clientid: identity.clientId, auth_xuid: identity.xuid, user_type: 'msa', version_type: meta.type, user_properties: '{}',
         resolution_width: '1280', resolution_height: '720'
       };
@@ -601,5 +630,5 @@ class Launcher {
   }
 }
 
-module.exports = { Launcher, allowed, expandArgs, safePath, validId, validateProfile, libraryPlan, legacyArguments, normalizeVersionMetadata, inspectJava, download, pool, atomicJson, readJson, trustedUrl, extractNatives, host, hashFile, remoteJson, launchIdentity, redactStream };
+module.exports = { Launcher, allowed, expandArgs, safePath, validId, validateProfile, libraryPlan, legacyArguments, normalizeVersionMetadata, materializeAssets, inspectJava, download, pool, atomicJson, readJson, trustedUrl, extractNatives, host, hashFile, remoteJson, launchIdentity, redactStream };
 

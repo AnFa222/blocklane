@@ -9,7 +9,7 @@ const { Readable } = require('node:stream');
 const network = require('../src/network');
 const mods = require('../src/mods');
 function fakeResponse(bytes, options = {}) { const stream = Readable.from([bytes]); stream.statusCode = options.status || 200; stream.headers = {}; return stream; }
-const { Launcher, allowed, expandArgs, safePath, validateProfile, libraryPlan, legacyArguments, normalizeVersionMetadata, download, pool, extractNatives } = require('../src/core');
+const { Launcher, allowed, expandArgs, safePath, validateProfile, libraryPlan, legacyArguments, normalizeVersionMetadata, materializeAssets, download, pool, extractNatives } = require('../src/core');
 const windows = { name: 'windows', arch: 'x86_64', version: '10.0.22631' };
 const digest = data => crypto.createHash('sha1').update(data).digest('hex');
 const md5 = data => crypto.createHash('md5').update(data).digest('hex');
@@ -38,6 +38,17 @@ test('legacy Minecraft arguments are normalized for Java 8 launch metadata', () 
   assert.equal(metadata.javaVersion.majorVersion, 8);
   assert.deepEqual(metadata.arguments.game, ['--username', '${auth_player_name}', '--version', '${version_name}']);
   assert.ok(metadata.arguments.jvm.includes('${classpath}'));
+});
+
+test('legacy assets are mapped into virtual and pre-1.6 resource layouts', async t => {
+  const root = await temp(t), bytes = Buffer.from('legacy sound'), hash = digest(bytes), source = path.join(root, 'assets', 'objects', hash.slice(0, 2), hash);
+  await fs.mkdir(path.dirname(source), { recursive: true }); await fs.writeFile(source, bytes);
+  const objects = { 'sounds/random/click.ogg': { hash, size: bytes.length } };
+  assert.equal(await materializeAssets({ id: 'legacy', virtual: true, objects }, root), 'virtual');
+  assert.deepEqual(await fs.readFile(path.join(root, 'assets', 'virtual', 'legacy', 'sounds', 'random', 'click.ogg')), bytes);
+  assert.equal(await materializeAssets({ id: 'pre-1.6', map_to_resources: true, objects }, root), 'resources');
+  assert.deepEqual(await fs.readFile(path.join(root, 'resources', 'sounds', 'random', 'click.ogg')), bytes);
+  await assert.rejects(materializeAssets({ id: 'legacy', virtual: true, objects: { '../escape': { hash } } }, root), /path/);
 });
 
 test('download paths reject traversal, Windows drive paths, and alternate separators', () => {
