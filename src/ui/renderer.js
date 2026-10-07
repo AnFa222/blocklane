@@ -269,16 +269,25 @@ async function loadCatalog(refresh = false) {
   finally { $('#refresh').disabled = false; }
 }
 
+function closeVersionPicker() { $('#profile-version-panel').hidden = true; $('#profile-version-trigger').setAttribute('aria-expanded', 'false'); }
 function renderProfileVersions(query = '', preferred = '') {
-  const select = $('#profile-version'), search = query.trim().toLowerCase();
+  const input = $('#profile-version'), options = $('#profile-version-options'), search = query.trim().toLowerCase();
   const matches = catalog.versions.filter(supported).filter(v => `${v.id} ${versionTypeLabel(v.type)} ${String(v.releaseTime).slice(0, 10)}`.toLowerCase().includes(search));
-  const previous = preferred || select.value;
-  select.replaceChildren();
-  for (const v of matches) { const option = el('option', '', `${v.id} · ${versionTypeLabel(v.type)}`); option.value = v.id; select.append(option); }
-  select.value = matches.some(v => v.id === previous) ? previous : matches[0]?.id || '';
+  if (preferred) input.value = preferred;
+  if (!input.value || !catalog.versions.some(v => v.id === input.value)) input.value = catalog.latest.release || matches[0]?.id || '';
+  const selected = catalog.versions.find(v => v.id === input.value);
+  $('#profile-version-trigger').firstElementChild.textContent = selected ? `${selected.id} · ${versionTypeLabel(selected.type)}` : 'Choose a version';
+  options.replaceChildren();
+  for (const v of matches) {
+    const option = button(v.id, `version-picker-option${v.id === input.value ? ' active' : ''}`, () => {
+      input.value = v.id; renderProfileVersions($('#profile-version-search').value); closeVersionPicker(); input.dispatchEvent(new Event('change'));
+    });
+    option.setAttribute('role', 'option'); option.setAttribute('aria-selected', String(v.id === input.value)); option.append(el('small', '', versionTypeLabel(v.type))); options.append(option);
+  }
+  if (!matches.length) options.append(el('div', 'empty compact', 'No matching versions.'));
   $('#profile-version-note').textContent = `${matches.length} of ${catalog.versions.filter(supported).length} official versions shown${search ? ` for “${query.trim()}”` : ''}.`;
-  $('#save-profile').disabled = !select.value || loaderLoading;
-  return select.value;
+  $('#save-profile').disabled = !input.value || loaderLoading;
+  return input.value;
 }
 
 function openProfile(profile = null, version = null) {
@@ -287,6 +296,7 @@ function openProfile(profile = null, version = null) {
   $('#dialog-title').textContent = profile?.id ? 'Edit profile' : 'New profile';
   $('#profile-name').value = profile?.name || (version ? `Vanilla ${version}` : 'My survival world');
   $('#profile-version-search').value = '';
+  closeVersionPicker();
   renderProfileVersions('', profile?.version || version || catalog.latest.release);
   $('#profile-memory').value = String(profile?.memory || 4);
   $('#profile-java').value = !profile?.javaPath || ['java', 'java.exe', 'auto'].includes(profile.javaPath.toLowerCase()) ? 'auto' : profile.javaPath;
@@ -318,11 +328,10 @@ async function loadLoaderVersions(selectedVersion) {
 }
 $('#profile-loader').addEventListener('change', () => loadLoaderVersions());
 $('#profile-version').addEventListener('change', () => loadLoaderVersions());
-$('#profile-version-search').addEventListener('input', () => {
-  const before = $('#profile-version').value;
-  const selected = renderProfileVersions($('#profile-version-search').value, before);
-  if (selected !== before) loadLoaderVersions();
-});
+$('#profile-version-trigger').addEventListener('click', () => { const panel = $('#profile-version-panel'), opening = panel.hidden; panel.hidden = !opening; $('#profile-version-trigger').setAttribute('aria-expanded', String(opening)); if (opening) { $('#profile-version-search').focus(); $('#profile-version-search').select(); } });
+$('#profile-version-search').addEventListener('input', () => renderProfileVersions($('#profile-version-search').value));
+$('#profile-version-search').addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); closeVersionPicker(); $('#profile-version-trigger').focus(); } });
+$('#profile-dialog').addEventListener('click', event => { if (!event.target.closest('.version-picker')) closeVersionPicker(); });
 $('#profile-memory').addEventListener('change', () => { $('#profile-jvm-args').textContent = profileJvmArguments(Number($('#profile-memory').value)).join('\n'); });
 $('#mods-profile').addEventListener('change', () => { modState = null; shaderState = null; resourcepackState = null; shaderAdapter = null; modSearchState = { query: '', offset: 0, total: 0, hits: [] }; shaderSearchState = { query: '', offset: 0, total: 0, hits: [] }; resourcepackSearchState = { query: '', offset: 0, total: 0, hits: [] }; guard(loadModsView); });
 $$('[data-library-tab]').forEach(tab => tab.addEventListener('click', () => { if (tab.dataset.libraryTab === 'shaders' && !shaderAdapter) return; libraryTab = tab.dataset.libraryTab; $('#mod-search').value = ''; guard(loadModsView); }));
