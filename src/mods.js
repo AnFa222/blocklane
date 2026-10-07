@@ -42,6 +42,11 @@ function compatible(version, profile) {
   return version?.game_versions?.includes(profile.version) && version?.loaders?.includes(profile.loader);
 }
 
+function missingDependency(projectId, profile) {
+  const error = new Error(`Required dependency ${projectId} has no compatible ${profile.loader} file for Minecraft ${profile.version}.`);
+  error.code = 'EMISSINGDEPENDENCY'; error.dependencyId = projectId; return error;
+}
+
 async function manifest(modsDir, io) {
   const value = await io.readJson(path.join(modsDir, '.blocklane', 'managed.json'), { schema: 1, mods: [] });
   if (value?.schema !== 1 || !Array.isArray(value.mods)) throw new Error('The managed mod list is damaged. Restore or remove .blocklane/managed.json.');
@@ -82,16 +87,18 @@ async function project(projectId, io, signal) {
 }
 
 async function exactVersion(versionId, profile, io, signal) {
-  const value = await io.remoteJson(apiUrl(`/version/${modId(versionId, 'version')}`), signal);
-  if (!compatible(value, profile)) throw new Error('A required dependency has no compatible version for this profile.');
+  let value;
+  try { value = await io.remoteJson(apiUrl(`/version/${modId(versionId, 'version')}`), signal); }
+  catch (error) { if (error.status === 404) throw missingDependency(versionId, profile); throw error; }
+  if (!compatible(value, profile)) throw missingDependency(value?.project_id || versionId, profile);
   return value;
 }
 
-async function installProject(profile, projectId, modsDir, io, signal, progress = () => {}) {
+async function installProject(profile, projectId, modsDir, io, signal, progress = () => {}, options = {}) {
   await fs.mkdir(modsDir, { recursive: true });
   const before = await manifest(modsDir, io);
   const existing = new Set((await fs.readdir(modsDir).catch(() => [])).filter(name => /^blocklane-.*\.jar(?:\.disabled)?$/i.test(name)));
-  const transaction = { deferredDeletes: new Set(), requiredProjects: new Set() };
+  const transaction = { deferredDeletes: new Set(), requiredProjects: new Set(), missingDependencies: new Set(), allowMissingDependencies: Boolean(options.allowMissingDependencies) };
   try {
     await installProjectInner(profile, projectId, modsDir, io, signal, progress, projectId, new Set(), transaction);
     const current = await manifest(modsDir, io);
@@ -105,6 +112,7 @@ async function installProject(profile, projectId, modsDir, io, signal, progress 
     }
     await saveManifest(modsDir, current, io);
     for (const filename of transaction.deferredDeletes) await fs.rm(path.join(modsDir, filename), { force: true });
+    return { missingDependencies: [...transaction.missingDependencies] };
   } catch (error) {
     await saveManifest(modsDir, before, io);
     for (const filename of (await fs.readdir(modsDir).catch(() => []))) if (/^blocklane-.*\.jar(?:\.disabled)?$/i.test(filename) && !existing.has(filename)) await fs.rm(path.join(modsDir, filename), { force: true });
@@ -116,9 +124,11 @@ async function installProjectInner(profile, projectId, modsDir, io, signal, prog
   projectId = modId(projectId, 'project'); rootId = modId(rootId, 'project'); profileLoader(profile);
   if (seen.has(projectId)) return;
   seen.add(projectId);
-  const versions = await projectVersions(projectId, profile, io, signal);
+  let versions;
+  try { versions = await projectVersions(projectId, profile, io, signal); }
+  catch (error) { if (projectId !== rootId && error.status === 404) throw missingDependency(projectId, profile); throw error; }
   const version = versions.find(v => v.version_type === 'release') || versions[0];
-  if (!version) throw new Error(`No compatible ${profile.loader} version exists for Minecraft ${profile.version}.`);
+  if (!version) { if (projectId !== rootId) throw missingDependency(projectId, profile); throw new Error(`No compatible ${profile.loader} version exists for Minecraft ${profile.version}.`); }
   await installVersion(profile, version, modsDir, io, signal, progress, rootId, seen, projectId, transaction);
 }
 
@@ -148,13 +158,19 @@ async function installVersion(profile, version, modsDir, io, signal, progress, r
 
   for (const dependency of version.dependencies || []) {
     if (dependency.dependency_type !== 'required') continue;
-    if (dependency.version_id) {
-      const child = await exactVersion(dependency.version_id, profile, io, signal);
-      if (seen.has(child.project_id)) continue;
-      seen.add(child.project_id);
-      await installVersion(profile, child, modsDir, io, signal, progress, rootId, seen, child.project_id, transaction);
-    } else if (dependency.project_id) await installProjectInner(profile, dependency.project_id, modsDir, io, signal, progress, rootId, seen, transaction);
-    else throw new Error(`${info.title} has an unresolved required dependency.`);
+    const dependencyId = dependency.project_id || dependency.version_id || 'unknown dependency';
+    try {
+      if (dependency.version_id) {
+        const child = await exactVersion(dependency.version_id, profile, io, signal);
+        if (seen.has(child.project_id)) continue;
+        seen.add(child.project_id);
+        await installVersion(profile, child, modsDir, io, signal, progress, rootId, seen, child.project_id, transaction);
+      } else if (dependency.project_id) await installProjectInner(profile, dependency.project_id, modsDir, io, signal, progress, rootId, seen, transaction);
+      else throw missingDependency(dependencyId, profile);
+    } catch (error) {
+      if (error.code !== 'EMISSINGDEPENDENCY' || !transaction.allowMissingDependencies) throw error;
+      transaction.missingDependencies.add(error.dependencyId || dependencyId); progress(`Skipping missing dependency ${error.dependencyId || dependencyId}`, 0, 0, 'warning');
+    }
   }
 }
 

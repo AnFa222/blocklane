@@ -391,12 +391,12 @@ class Launcher {
   async modSearch(profileId, query = '', offset = 0) { const p = this.modProfile(profileId); return mods.search(p, query, offset, this.loaderIO()); }
   async modDetails(profileId, projectId) { const p = this.modProfile(profileId); return mods.project(projectId, this.loaderIO()); }
   async modList(profileId) { const p = this.modProfile(profileId); return mods.list(p, this.modsDir(p), this.loaderIO()); }
-  async modInstall(profileId, projectId) {
+  async modInstall(profileId, projectId, allowMissingDependencies = false) {
     const p = this.modProfile(profileId), dir = this.modsDir(p);
     return this.runContentTask('mod', profileId, projectId, async (signal, report) => this.withContentLock(`mods:${dir}`, async () => {
       report('Preparing mod and dependencies…', 0, 0, 'resolving');
-      await mods.installProject(p, projectId, dir, this.loaderIO(), signal, report);
-      return this.modList(profileId);
+      const installed = await mods.installProject(p, projectId, dir, this.loaderIO(), signal, report, { allowMissingDependencies: Boolean(allowMissingDependencies) });
+      return { ...await this.modList(profileId), warnings: installed.missingDependencies };
     }));
   }
   async modEnable(profileId, projectId, enabled) {

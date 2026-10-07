@@ -18,7 +18,7 @@ function version(projectId, id, number, dependencies = []) {
 function fakeIo(root, options = {}) {
   const versions = {
     [ids.root]: version(ids.root, ids.rootVersion, '1.0.0', [{ dependency_type: 'required', project_id: ids.dependency }]),
-    [ids.dependency]: version(ids.dependency, ids.dependencyVersion, '2.0.0')
+    ...(options.missingDependency ? {} : { [ids.dependency]: version(ids.dependency, ids.dependencyVersion, '2.0.0') })
   };
   return { ...core,
     remoteJson: async url => {
@@ -69,6 +69,15 @@ test('failed dependency installation rolls back the managed list and downloaded 
   await assert.rejects(mods.installProject(profile, ids.root, root, io), /download failed/);
   assert.deepEqual((await mods.list(profile, root, io)).installed, []);
   assert.equal((await fs.readdir(root)).filter(name => name.startsWith('blocklane-')).length, 0);
+});
+
+test('missing dependencies require an explicit install-anyway override', async t => {
+  const root = await temp(t), io = fakeIo(root, { missingDependency: true });
+  await assert.rejects(mods.installProject(profile, ids.root, root, io), error => error.code === 'EMISSINGDEPENDENCY' && error.message.includes(ids.dependency));
+  assert.deepEqual((await mods.list(profile, root, io)).installed, []);
+  const result = await mods.installProject(profile, ids.root, root, io, undefined, undefined, { allowMissingDependencies: true });
+  assert.deepEqual(result.missingDependencies, [ids.dependency]);
+  assert.deepEqual((await mods.list(profile, root, io)).installed.map(item => item.projectId), [ids.root]);
 });
 
 test('manual jars are listed separately and never claimed as managed', async t => {

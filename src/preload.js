@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 const invoke = async (channel, ...args) => {
   const result = await ipcRenderer.invoke(channel, ...args);
-  if (!result.ok) throw new Error(result.error);
+  if (!result.ok) { const error = new Error(result.error); if (result.code) error.code = result.code; throw error; }
   return result.data;
 };
 contextBridge.exposeInMainWorld('launcher', {
@@ -11,7 +11,7 @@ contextBridge.exposeInMainWorld('launcher', {
   openMods: id => invoke('folder:mods', id), openShaders: id => invoke('folder:shaderpacks', id), openResourcepacks: id => invoke('folder:resourcepacks', id),
   searchMods: (profileId, query, offset = 0) => invoke('mods:search', profileId, query, offset),
   modDetails: (profileId, projectId) => invoke('mods:details', profileId, projectId), openModrinth: url => invoke('mods:open', url),
-  listMods: profileId => invoke('mods:list', profileId), installMod: (profileId, projectId) => invoke('mods:install', profileId, projectId),
+  listMods: profileId => invoke('mods:list', profileId), installMod: (profileId, projectId, allowMissingDependencies = false) => invoke('mods:install', profileId, projectId, allowMissingDependencies),
   enableMod: (profileId, projectId, enabled) => invoke('mods:enable', profileId, projectId, enabled),
   removeMod: (profileId, projectId) => invoke('mods:remove', profileId, projectId),
   modUpdates: profileId => invoke('mods:updates', profileId), updateAllMods: profileId => invoke('mods:update-all', profileId),

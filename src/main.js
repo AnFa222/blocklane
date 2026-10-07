@@ -33,7 +33,7 @@ async function start() {
   const handle = (name, fn) => ipcMain.handle(name, async (event, ...args) => {
     if (event.senderFrame !== window.webContents.mainFrame || event.senderFrame.url !== page) throw new Error('Untrusted caller.');
     try { return { ok: true, data: await fn(...args) }; }
-    catch (error) { return { ok: false, error: error.message }; }
+    catch (error) { return { ok: false, error: error.message, code: typeof error.code === 'string' ? error.code : null }; }
   });
   handle('state', () => launcher.snapshot());
   handle('catalog', refresh => launcher.catalog(Boolean(refresh)));
@@ -44,7 +44,7 @@ async function start() {
   handle('mods:details', (profileId, projectId) => launcher.modDetails(profileId, projectId));
   handle('mods:open', async url => { const parsed = new URL(String(url)); if (parsed.protocol !== 'https:' || parsed.username || parsed.password) throw new Error('Only secure HTTPS links can be opened.'); return shell.openExternal(parsed.href); });
   handle('mods:list', profileId => launcher.modList(profileId));
-  handle('mods:install', (profileId, projectId) => launcher.modInstall(profileId, projectId));
+  handle('mods:install', (profileId, projectId, allowMissingDependencies) => launcher.modInstall(profileId, projectId, Boolean(allowMissingDependencies)));
   handle('mods:enable', (profileId, projectId, enabled) => launcher.modEnable(profileId, projectId, enabled));
   handle('mods:remove', (profileId, projectId) => launcher.modRemove(profileId, projectId));
   handle('mods:updates', profileId => launcher.modUpdates(profileId));
