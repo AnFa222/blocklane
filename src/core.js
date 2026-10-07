@@ -371,6 +371,10 @@ class Launcher {
     const transferred = await worlds.transfer(path.join(this.root, 'instances', source.id, 'saves'), path.join(this.root, 'instances', destination.id, 'saves'), names, Boolean(move));
     return { transferred, moved: Boolean(move), destinationId: destination.id };
   }
+  async deleteWorlds(id, names) {
+    if (this.child || this.working) throw new Error('Close Minecraft before deleting worlds.');
+    const profile = this.profile(id); return { removed: await worlds.remove(path.join(this.root, 'instances', profile.id, 'saves'), names) };
+  }
   async backupProfile(id, name = '') {
     if (this.child || this.working) throw new Error('Wait for the current operation to finish.');
     const profile = this.profile(id), source = path.join(this.root, 'instances', profile.id, 'saves');

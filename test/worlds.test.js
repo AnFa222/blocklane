@@ -20,6 +20,11 @@ test('worlds copy or move between profiles without overwriting', async t => {
   assert.deepEqual(await worlds.transfer(first, second, ['Creative'], true), ['Creative (3)']); await assert.rejects(fs.access(path.join(first, 'Creative')));
 });
 
+test('world deletion accepts only existing valid worlds', async t => {
+  const root = await temp(t), saves = path.join(root, 'saves'); await world(saves, 'Delete me'); await fs.mkdir(path.join(saves, 'not-a-world'));
+  assert.deepEqual(await worlds.remove(saves, ['Delete me']), ['Delete me']); await assert.rejects(fs.access(path.join(saves, 'Delete me'))); await assert.rejects(worlds.remove(saves, ['not-a-world']), /not found/);
+});
+
 test('world names and ZIP paths reject traversal', () => {
   assert.throws(() => worlds.worldName('../world'), /Invalid/); assert.throws(() => worlds.safeZipPath('../outside/level.dat'), /unsafe/); assert.throws(() => worlds.safeZipPath('C:/outside/level.dat'), /unsafe/);
 });

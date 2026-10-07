@@ -84,5 +84,12 @@ async function transfer(sourceSaves, destinationSaves, names, move) {
   }
   return result;
 }
+async function remove(saves, names) {
+  if (!Array.isArray(names) || !names.length) throw new Error('Choose at least one world.');
+  const available = new Set((await list(saves)).map(world => world.name)); const removed = [];
+  for (const value of names) { const name = worldName(value); if (!available.has(name)) throw new Error(`World not found: ${name}`); }
+  for (const value of names) { const name = worldName(value); await fs.rm(path.join(saves, name), { recursive: true, force: false }); removed.push(name); }
+  return removed;
+}
 
-module.exports = { worldName, list, discoverFolders, copyFolders, safeZipPath, importZip, transfer };
+module.exports = { worldName, list, discoverFolders, copyFolders, safeZipPath, importZip, transfer, remove };

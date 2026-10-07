@@ -247,10 +247,10 @@ async function confirmDeleteProfile(p) {
 
 let worldProfile = null, profileWorlds = [], pendingWorldNames = [];
 async function refreshWorldManager() {
-  if (!worldProfile) return; profileWorlds = await api.listWorlds(worldProfile.id); const list = $('#worlds-list'); list.replaceChildren();
+  if (!worldProfile) return; profileWorlds = await api.listWorlds(worldProfile.id); const list = $('#worlds-list'); list.replaceChildren(); $('#world-delete-confirm').hidden = true;
   if (!profileWorlds.length) list.append(emptyMods('No worlds in this profile', 'Import worlds from the default launcher, another folder, or a ZIP archive.'));
   for (const world of profileWorlds) { const label = el('label', 'world-row'), input = document.createElement('input'), copy = el('span', 'world-row-copy'); input.type = 'checkbox'; input.value = world.name; copy.append(el('strong', '', world.name), el('small', '', `${new Date(world.modifiedAt).toLocaleString()} · ${formatBytes(world.size)}`)); label.append(input, copy); list.append(label); }
-  $('#transfer-worlds').disabled = !profileWorlds.length || state.profiles.length < 2;
+  $('#transfer-worlds').disabled = !profileWorlds.length || state.profiles.length < 2; $('#delete-worlds').disabled = !profileWorlds.length;
 }
 async function openWorldManager(profile) { worldProfile = profile; $('#worlds-title').textContent = `${profile.name} worlds`; $('#worlds-error').textContent = ''; $('#worlds-dialog').showModal(); await refreshWorldManager(); }
 async function runWorldImport(action) { $('#worlds-error').textContent = ''; try { const result = await action(); if (!result) return; await refreshWorldManager(); toast(`${result.imported.length} world${result.imported.length === 1 ? '' : 's'} imported.`); } catch (error) { $('#worlds-error').textContent = error.message; } }
@@ -259,6 +259,8 @@ function openWorldTransfer() {
   const destination = $('#world-destination'); destination.replaceChildren(); for (const profile of state.profiles.filter(profile => profile.id !== worldProfile.id)) { const option = el('option', '', profile.name); option.value = profile.id; destination.append(option); }
   $('#world-transfer-summary').textContent = `${pendingWorldNames.length} selected: ${pendingWorldNames.join(' · ')}`; $('#world-transfer-error').textContent = ''; $('#world-transfer-dialog').showModal();
 }
+function selectedWorldNames() { return $$('#worlds-list input:checked').map(input => input.value); }
+function requestWorldDelete() { const names = selectedWorldNames(); if (!names.length) { $('#worlds-error').textContent = 'Choose at least one world.'; return; } pendingWorldNames = names; $('#worlds-error').textContent = ''; $('#world-delete-copy').textContent = `Permanently delete ${names.length} world${names.length === 1 ? '' : 's'}: ${names.join(' · ')}?`; $('#world-delete-confirm').hidden = false; }
 async function loadSkins() {
   const request = ++skinLoadRequest, accounts = accountState.accounts.filter(account => account.type !== 'demo'), picker = $('#skins-account');
   const prior = skinAccountId || picker.value || (accountState.selected !== 'demo' ? accountState.selected : ''); picker.replaceChildren();
@@ -454,6 +456,9 @@ $('#import-default-worlds').addEventListener('click', () => runWorldImport(() =>
 $('#import-world-folder').addEventListener('click', () => runWorldImport(() => api.importWorldFolder(worldProfile.id)));
 $('#import-world-zip').addEventListener('click', () => runWorldImport(() => api.importWorldZip(worldProfile.id)));
 $('#transfer-worlds').addEventListener('click', openWorldTransfer);
+$('#delete-worlds').addEventListener('click', requestWorldDelete);
+$('#cancel-world-delete').addEventListener('click', () => { $('#world-delete-confirm').hidden = true; });
+$('#confirm-world-delete').addEventListener('click', () => guard(async () => { const result = await api.deleteWorlds(worldProfile.id, pendingWorldNames); await refreshWorldManager(); toast(`${result.removed.length} world${result.removed.length === 1 ? '' : 's'} deleted.`); }).catch(error => { $('#worlds-error').textContent = error.message; }));
 for (const selector of ['#close-world-transfer', '#cancel-world-transfer']) $(selector).addEventListener('click', () => $('#world-transfer-dialog').close());
 $('#world-transfer-dialog').addEventListener('cancel', event => { event.preventDefault(); event.currentTarget.close(); });
 $('#world-transfer-form').addEventListener('submit', event => { event.preventDefault(); guard(async () => { const destination = $('#world-destination').value, move = $('[name="world-transfer-mode"]:checked').value === 'move'; const result = await api.transferWorlds(worldProfile.id, destination, pendingWorldNames, move); $('#world-transfer-dialog').close(); await refreshWorldManager(); toast(`${result.transferred.length} world${result.transferred.length === 1 ? '' : 's'} ${move ? 'moved' : 'copied'}.`); }).catch(error => { $('#world-transfer-error').textContent = error.message; }); });
