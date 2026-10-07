@@ -131,7 +131,8 @@ async function runModTask(meta, action) {
 async function installLibraryItem(meta, action, installAnyway = null) {
   try { return await runModTask(meta, action); }
   catch (error) {
-    if (error.code !== 'EMISSINGDEPENDENCY' || !installAnyway) throw error;
+    const missingDependency = error.code === 'EMISSINGDEPENDENCY' || /^Required dependency .+ has no compatible .+ file for Minecraft .+\.$/i.test(error.message || '');
+    if (!missingDependency || !installAnyway) throw error;
     dependencyInstallQueue.push({ message: error.message, install: async () => { const result = await runModTask(meta, installAnyway); const missing = result?.warnings || []; toast(missing.length ? `Installed without ${missing.length} required dependenc${missing.length === 1 ? 'y' : 'ies'}: ${missing.join(', ')}` : 'Installed with missing dependencies.'); } });
     showNextDependencyWarning(); return null;
   }

@@ -157,6 +157,11 @@ async function start() {
     const result = await window.webContents.executeJavaScript(`(async () => {
       const waitFor = async (fn) => { for (let i = 0; i < 200; i++) { if (await fn()) return; await new Promise(r => setTimeout(r, 100)); } throw new Error('UI wait timed out'); };
       await waitFor(() => document.querySelector('#latest-version').textContent !== '—');
+      const originalRunModTask = window.runModTask;
+      window.runModTask = async () => { throw new Error('Required dependency 8BmcQJ2H has no compatible fabric file for Minecraft 26.3.'); };
+      await window.installLibraryItem({ kind: 'mod', profileId: 'smoke', projectId: 'abcdefgh' }, () => {}, () => {});
+      if (!document.querySelector('#missing-dependency-dialog').open || !document.querySelector('#install-anyway')) throw new Error('Missing-dependency override dialog did not open');
+      document.querySelector('#cancel-missing-dependency').click(); window.runModTask = originalRunModTask;
       const state = await window.launcher.state();
       document.querySelector('[data-view="versions"]').click();
       if (!document.querySelector('#view-versions').classList.contains('active')) throw new Error('Navigation failed');
@@ -183,7 +188,7 @@ async function start() {
       await waitFor(() => !document.querySelector('#profile-dialog').open);
       const modded = (await window.launcher.state()).profiles.find(p => p.id === saved.selectedProfile);
       if (modded.loader !== 'neoforge' || !modded.loaderVersion) throw new Error('Modded profile persistence failed');
-      return { title: document.title, bridge: Boolean(window.launcher), nodeDisabled: typeof require === 'undefined', catalogRendered: true, profileSaved: true, loaderCatalogs: true, moddedProfileSaved: true };
+      return { title: document.title, bridge: Boolean(window.launcher), nodeDisabled: typeof require === 'undefined', catalogRendered: true, dependencyDialog: true, profileSaved: true, loaderCatalogs: true, moddedProfileSaved: true };
     })()`);
     await new Promise(resolve => setTimeout(resolve, 1500));
     const screenshot = await window.webContents.capturePage();
