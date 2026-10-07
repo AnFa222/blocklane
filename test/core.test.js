@@ -58,9 +58,10 @@ test('library planning filters operating systems and resolves legacy native clas
 test('downloads skip verified files, repair corruption, and never promote bad bytes', async t => {
   const root = await temp(t), dest = path.join(root, 'asset');
   const bytes = Buffer.from('good payload'), item = { sha1: digest(bytes), size: bytes.length, url: 'https://libraries.minecraft.net/test' };
-  let calls = 0;
+  let calls = 0; const progress = [];
   t.mock.method(network, 'open', async () => { calls++; return fakeResponse(bytes); });
-  await download(item, dest); await download(item, dest); assert.equal(calls, 1);
+  await download(item, dest, undefined, (done, total) => progress.push([done, total])); await download(item, dest); assert.equal(calls, 1);
+  assert.deepEqual(progress.at(-1), [bytes.length, bytes.length]);
   await fs.writeFile(dest, 'broken'); await download(item, dest); assert.equal(calls, 2);
   await assert.rejects(download({ ...item, sha1: '0'.repeat(40) }, path.join(root, 'bad')), /integrity/);
   assert.deepEqual((await fs.readdir(root)).sort(), ['asset']);
@@ -76,6 +77,18 @@ test('worker pool waits for in-flight work before reporting failure', async () =
   let active = 0;
   await assert.rejects(pool([1, 2, 3, 4], async n => { active++; try { await new Promise(r => setTimeout(r, n * 5)); if (n === 1) throw new Error('failed'); } finally { active--; } }, null, 2), /failed/);
   assert.equal(active, 0);
+});
+
+test('content downloads run concurrently and report independent item progress', async t => {
+  const root = await temp(t), events = [], launcher = new Launcher(root, (event, value) => { if (event === 'content-progress') events.push(value); }); await launcher.init();
+  let active = 0, maximum = 0;
+  const run = projectId => launcher.runContentTask('resourcepack', 'profile', projectId, async (_signal, report) => {
+    active++; maximum = Math.max(maximum, active); report(`Downloading ${projectId}`, 5, 10); await new Promise(resolve => setTimeout(resolve, 20)); active--; return projectId;
+  });
+  assert.deepEqual(await Promise.all([run('abcdefgh'), run('ijklmnop')]), ['abcdefgh', 'ijklmnop']);
+  assert.equal(maximum, 2); assert.equal((await launcher.snapshot()).downloads, 0);
+  assert.ok(events.some(event => event.key === 'resourcepack:profile:abcdefgh' && event.doneBytes === 5 && event.totalBytes === 10));
+  assert.ok(events.some(event => event.key === 'resourcepack:profile:ijklmnop' && event.status === 'complete'));
 });
 
 function zipEntry(name, content, mode = 0x81a4) {

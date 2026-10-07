@@ -114,12 +114,12 @@ async function hashFile(file) {
   return hash.digest('hex');
 }
 
-async function download(item, dest, signal) {
+async function download(item, dest, signal, onProgress = () => {}) {
   signal?.throwIfAborted();
   if (!/^[a-f0-9]{40}$/.test(item.sha1 || '')) throw new Error('Download is missing a valid checksum.');
   try {
     const stat = await fs.stat(dest);
-    if ((!item.size || stat.size === item.size) && await hashFile(dest) === item.sha1) return;
+    if ((!item.size || stat.size === item.size) && await hashFile(dest) === item.sha1) { onProgress(stat.size, item.size || stat.size); return; }
   } catch (error) { if (error.code !== 'ENOENT') throw error; }
   await fs.mkdir(path.dirname(dest), { recursive: true });
   return network.withRetries(async () => {
@@ -127,14 +127,16 @@ async function download(item, dest, signal) {
   try {
     const res = await response(item.url, signal);
     const hash = crypto.createHash('sha1');
-    let bytes = 0;
-    const verifier = new Transform({ transform(chunk, encoding, next) { hash.update(chunk); bytes += chunk.length; next(null, chunk); } });
+    let bytes = 0, lastReport = 0;
+    onProgress(0, item.size || 0);
+    const verifier = new Transform({ transform(chunk, encoding, next) { hash.update(chunk); bytes += chunk.length; const now = Date.now(); if (now - lastReport >= 80 || (item.size && bytes >= item.size)) { lastReport = now; onProgress(bytes, item.size || 0); } next(null, chunk); } });
     await pipeline(res, verifier, createWriteStream(temp), { signal });
     if (hash.digest('hex') !== item.sha1 || (item.size != null && bytes !== item.size)) {
       const error = new Error('A download failed its integrity check. Retry to repair it.');
       error.code = 'EINTEGRITY'; throw error;
     }
     await fs.rename(temp, dest);
+    onProgress(bytes, item.size || bytes);
   } finally { await fs.rm(temp, { force: true }); }
   }, signal);
 }
@@ -237,7 +239,9 @@ function redactStream(secret) {
 }
 
 class Launcher {
-  constructor(root, emit = () => {}) { this.root = root; this.emit = emit; this.busy = false; this.child = null; this.manifest = null; }
+  constructor(root, emit = () => {}) { this.root = root; this.emit = emit; this.busy = false; this.child = null; this.manifest = null; this.contentTasks = new Map(); this.contentLocks = new Map(); }
+  get contentBusy() { return this.contentTasks.size > 0; }
+  get working() { return this.busy || this.contentBusy; }
   async init() {
     await fs.mkdir(this.root, { recursive: true });
     this.state = await readJson(path.join(this.root, 'state.json'), { profiles: [], selectedProfile: null });
@@ -250,7 +254,7 @@ class Launcher {
       const marker = await readJson(path.join(this.root, 'versions', id, 'installed.json'), null);
       if (marker) installed.push(marker);
     }
-    return { ...this.state, installed, root: this.root, busy: this.busy, running: Boolean(this.child) };
+    return { ...this.state, installed, root: this.root, busy: this.working, downloads: this.contentTasks.size, running: Boolean(this.child) };
   }
   async persist() { await atomicJson(path.join(this.root, 'state.json'), this.state); return this.snapshot(); }
   async catalog(refresh = false) {
@@ -270,7 +274,7 @@ class Launcher {
     }
   }
   async saveProfile(input) {
-    if (this.busy || this.child) throw new Error('Wait for the installation or game to finish before editing profiles.');
+    if (this.working || this.child) throw new Error('Wait for the installation or game to finish before editing profiles.');
     const profile = validateProfile(input);
     const catalog = await this.catalog();
     if (!catalog.versions.some(v => v.id === profile.version)) throw new Error('Choose a version from the official catalog.');
@@ -287,14 +291,14 @@ class Launcher {
     return this.persist();
   }
   async deleteProfile(id) {
-    if (this.child || this.busy) throw new Error('Wait for the current operation to finish.');
+    if (this.child || this.working) throw new Error('Wait for the current operation to finish.');
     this.state.profiles = this.state.profiles.filter(p => p.id !== id);
     if (this.state.selectedProfile === id) this.state.selectedProfile = this.state.profiles[0]?.id || null;
     return this.persist();
   }
   profile(id) { const profile = this.state.profiles.find(item => item.id === id); if (!profile) throw new Error('Profile does not exist.'); return profile; }
   async cloneProfile(id, name) {
-    if (this.child || this.busy) throw new Error('Wait for the current operation to finish.');
+    if (this.child || this.working) throw new Error('Wait for the current operation to finish.');
     const source = this.profile(id), copy = { ...source, id: crypto.randomUUID(), name: String(name || `${source.name} copy`).trim(), servers: [...(source.servers || [])] };
     if (!copy.name || copy.name.length > 50) throw new Error('Use a profile name between 1 and 50 characters.');
     const from = path.join(this.root, 'instances', source.id), to = path.join(this.root, 'instances', copy.id);
@@ -302,7 +306,7 @@ class Launcher {
     this.state.profiles.push(copy); this.state.selectedProfile = copy.id; return this.persist();
   }
   async backupProfile(id, name = '') {
-    if (this.child || this.busy) throw new Error('Wait for the current operation to finish.');
+    if (this.child || this.working) throw new Error('Wait for the current operation to finish.');
     const profile = this.profile(id), source = path.join(this.root, 'instances', profile.id, 'saves');
     const label = String(name || 'World backup').trim(); if (!label || label.length > 80 || /[<>:"/\\|?*\x00-\x1f]/.test(label)) throw new Error('Backup names must be 1–80 characters and cannot contain Windows file characters.');
     const stamp = new Date().toISOString().replace(/[:.]/g, '-'); const folder = `${stamp}__${label.replace(/\s+/g, ' ')}`; const destination = path.join(this.root, 'backups', profile.id, folder, 'saves');
@@ -311,7 +315,7 @@ class Launcher {
   }
   async backups(id) { const profile = this.profile(id), root = path.join(this.root, 'backups', profile.id); const entries = await fs.readdir(root, { withFileTypes: true }).catch(() => []); return (await Promise.all(entries.filter(item => item.isDirectory()).map(async item => { const [stamp, savedName] = item.name.split('__', 2), stat = await fs.stat(path.join(root, item.name)); return { id: item.name, name: savedName || 'World backup', createdAt: stat.birthtime.toISOString(), worlds: (await fs.readdir(path.join(root, item.name, 'saves'), { withFileTypes: true }).catch(() => [])).filter(world => world.isDirectory()).map(world => world.name) }; }))).sort((a, b) => b.createdAt.localeCompare(a.createdAt)); }
   async restoreBackup(id, backupId, worlds = null) {
-    if (this.child || this.busy) throw new Error('Close Minecraft before restoring a backup.');
+    if (this.child || this.working) throw new Error('Close Minecraft before restoring a backup.');
     const profile = this.profile(id); if (typeof backupId !== 'string' || !/^[^\\/:*?"<>|]+$/.test(backupId)) throw new Error('Invalid backup.');
     const source = path.join(this.root, 'backups', profile.id, backupId, 'saves'); await fs.access(source).catch(() => { throw new Error('Backup worlds could not be found.'); });
     const available = (await fs.readdir(source, { withFileTypes: true })).filter(item => item.isDirectory()).map(item => item.name);
@@ -332,14 +336,34 @@ class Launcher {
     return this.launch(profileId, accountId, ['--server', host, ...(port ? ['--port', String(port)] : [])]);
   }
   progress(message, done = 0, total = 1) { this.emit('progress', { message, done, total }); }
-  cancel() { this.controller?.abort(new Error('Installation cancelled. Downloaded files are kept for retry.')); }
-  loaderIO() { return { allowed, trustedUrl, validId, safePath, readJson, atomicJson, hashFile, download, remoteJson, remoteText }; }
+  cancel() { this.controller?.abort(new Error('Installation cancelled. Downloaded files are kept for retry.')); for (const controller of this.contentTasks.values()) controller.abort(new Error('Download cancelled.')); }
+  loaderIO() { return { allowed, trustedUrl, validId, safePath, readJson, atomicJson, hashFile, download, remoteJson, remoteText, withLock: (key, task) => this.withContentLock(key, task) }; }
+  async withContentLock(key, task) {
+    const previous = this.contentLocks.get(key) || Promise.resolve(); let release;
+    const gate = new Promise(resolve => { release = resolve; }), tail = previous.then(() => gate);
+    this.contentLocks.set(key, tail); await previous;
+    try { return await task(); }
+    finally { release(); if (this.contentLocks.get(key) === tail) this.contentLocks.delete(key); }
+  }
+  async runContentTask(kind, profileId, projectId, task) {
+    if (this.busy || this.child) throw new Error('Wait for the current operation or game to finish.');
+    const key = `${kind}:${profileId}:${projectId}`;
+    if (this.contentTasks.has(key)) throw new Error('This item is already downloading.');
+    const controller = new AbortController(); this.contentTasks.set(key, controller);
+    const report = (message, doneBytes = 0, totalBytes = 0, status = 'downloading') => this.emit('content-progress', { key, kind, profileId, projectId, message, doneBytes, totalBytes, status });
+    report('Finding a compatible file…', 0, 0, 'resolving');
+    try {
+      const result = await task(controller.signal, report);
+      report('Installed', 1, 1, 'complete'); return result;
+    } catch (error) { report(error.message, 0, 0, 'failed'); throw error; }
+    finally { this.contentTasks.delete(key); }
+  }
   async loaderVersions(loader, version) {
     validId(version);
     return loaders.versions(loader, version, this.loaderIO());
   }
   async installProfile(profileId) {
-    if (this.busy || this.child) throw new Error('Wait for the current operation to finish.');
+    if (this.working || this.child) throw new Error('Wait for the current operation to finish.');
     const profile = this.state.profiles.find(p => p.id === profileId);
     if (!profile) throw new Error('Choose a profile first.');
     await this.install(profile.version);
@@ -368,23 +392,24 @@ class Launcher {
   async modDetails(profileId, projectId) { const p = this.modProfile(profileId); return mods.project(projectId, this.loaderIO()); }
   async modList(profileId) { const p = this.modProfile(profileId); return mods.list(p, this.modsDir(p), this.loaderIO()); }
   async modInstall(profileId, projectId) {
-    if (this.busy || this.child) throw new Error('Wait for the current operation or game to finish.');
-    const p = this.modProfile(profileId); this.busy = true; this.controller = new AbortController();
-    try { await mods.installProject(p, projectId, this.modsDir(p), this.loaderIO(), this.controller.signal, message => this.progress(message)); }
-    finally { this.busy = false; this.controller = null; }
-    return this.modList(profileId);
+    const p = this.modProfile(profileId), dir = this.modsDir(p);
+    return this.runContentTask('mod', profileId, projectId, async (signal, report) => this.withContentLock(`mods:${dir}`, async () => {
+      report('Preparing mod and dependencies…', 0, 0, 'resolving');
+      await mods.installProject(p, projectId, dir, this.loaderIO(), signal, report);
+      return this.modList(profileId);
+    }));
   }
   async modEnable(profileId, projectId, enabled) {
-    if (this.busy || this.child) throw new Error('Wait for the current operation or game to finish.');
+    if (this.working || this.child) throw new Error('Wait for the current operation or game to finish.');
     const p = this.modProfile(profileId); return mods.setEnabled(p, this.modsDir(p), projectId, Boolean(enabled), this.loaderIO());
   }
   async modRemove(profileId, projectId) {
-    if (this.busy || this.child) throw new Error('Wait for the current operation or game to finish.');
+    if (this.working || this.child) throw new Error('Wait for the current operation or game to finish.');
     const p = this.modProfile(profileId); return mods.remove(p, this.modsDir(p), projectId, this.loaderIO());
   }
   async modUpdates(profileId) { const p = this.modProfile(profileId); return mods.updates(p, this.modsDir(p), this.loaderIO()); }
   async modUpdateAll(profileId) {
-    if (this.busy || this.child) throw new Error('Wait for the current operation or game to finish.');
+    if (this.working || this.child) throw new Error('Wait for the current operation or game to finish.');
     const p = this.modProfile(profileId), available = await mods.updates(p, this.modsDir(p), this.loaderIO());
     this.busy = true; this.controller = new AbortController();
     try { for (const update of available) await mods.installProject(p, update.projectId, this.modsDir(p), this.loaderIO(), this.controller.signal, message => this.progress(message)); }
@@ -395,18 +420,16 @@ class Launcher {
   async shaderSearch(profileId, query = '', offset = 0) { const p = this.modProfile(profileId), selected = await this.shaderStatus(profileId); return shaders.search(p, selected, query, offset, this.loaderIO()); }
   async shaderList(profileId) { const p = this.modProfile(profileId); return shaders.list(p, this.shaderpacksDir(p), this.loaderIO()); }
   async shaderInstall(profileId, projectId) {
-    if (this.busy || this.child) throw new Error('Wait for the current operation or game to finish.');
-    const p = this.modProfile(profileId), selected = await this.shaderStatus(profileId); this.busy = true; this.controller = new AbortController();
-    try { return await shaders.install(p, selected, projectId, this.shaderpacksDir(p), this.loaderIO(), this.controller.signal, message => this.progress(message)); }
-    finally { this.busy = false; this.controller = null; }
+    const p = this.modProfile(profileId), selected = await this.shaderStatus(profileId);
+    return this.runContentTask('shader', profileId, projectId, (signal, report) => shaders.install(p, selected, projectId, this.shaderpacksDir(p), this.loaderIO(), signal, report));
   }
-  async shaderEnable(profileId, projectId, enabled) { const p = this.modProfile(profileId); return shaders.setEnabled(p, this.shaderpacksDir(p), projectId, Boolean(enabled), this.loaderIO()); }
-  async shaderRemove(profileId, projectId) { const p = this.modProfile(profileId); return shaders.remove(p, this.shaderpacksDir(p), projectId, this.loaderIO()); }
+  async shaderEnable(profileId, projectId, enabled) { if (this.working || this.child) throw new Error('Wait for the current operation or game to finish.'); const p = this.modProfile(profileId); return shaders.setEnabled(p, this.shaderpacksDir(p), projectId, Boolean(enabled), this.loaderIO()); }
+  async shaderRemove(profileId, projectId) { if (this.working || this.child) throw new Error('Wait for the current operation or game to finish.'); const p = this.modProfile(profileId); return shaders.remove(p, this.shaderpacksDir(p), projectId, this.loaderIO()); }
   async resourcepackSearch(profileId, query = '', offset = 0) { const p = this.modProfile(profileId); return resourcepacks.search(p, query, offset, this.loaderIO()); }
   async resourcepackList(profileId) { const p = this.modProfile(profileId); return resourcepacks.list(p, this.resourcepacksDir(p), this.loaderIO()); }
-  async resourcepackInstall(profileId, projectId) { if (this.busy || this.child) throw new Error('Wait for the current operation or game to finish.'); const p = this.modProfile(profileId); this.busy = true; this.controller = new AbortController(); try { return await resourcepacks.install(p, projectId, this.resourcepacksDir(p), this.loaderIO(), this.controller.signal, message => this.progress(message)); } finally { this.busy = false; this.controller = null; } }
-  async resourcepackEnable(profileId, projectId, enabled) { const p = this.modProfile(profileId); return resourcepacks.setEnabled(p, this.resourcepacksDir(p), projectId, Boolean(enabled), this.loaderIO()); }
-  async resourcepackRemove(profileId, projectId) { const p = this.modProfile(profileId); return resourcepacks.remove(p, this.resourcepacksDir(p), projectId, this.loaderIO()); }
+  async resourcepackInstall(profileId, projectId) { const p = this.modProfile(profileId); return this.runContentTask('resourcepack', profileId, projectId, (signal, report) => resourcepacks.install(p, projectId, this.resourcepacksDir(p), this.loaderIO(), signal, report)); }
+  async resourcepackEnable(profileId, projectId, enabled) { if (this.working || this.child) throw new Error('Wait for the current operation or game to finish.'); const p = this.modProfile(profileId); return resourcepacks.setEnabled(p, this.resourcepacksDir(p), projectId, Boolean(enabled), this.loaderIO()); }
+  async resourcepackRemove(profileId, projectId) { if (this.working || this.child) throw new Error('Wait for the current operation or game to finish.'); const p = this.modProfile(profileId); return resourcepacks.remove(p, this.resourcepacksDir(p), projectId, this.loaderIO()); }
   async prepareLocalSkin(profile, identity, gameDir, signal) {
     if (!identity.local) return { active: false, supported: true };
     const source = path.join(this.root, 'skins', `${identity.uuid}.png`);
@@ -435,7 +458,7 @@ class Launcher {
   }
   async install(id) {
     validId(id);
-    if (this.busy || this.child) throw new Error('Wait for the current operation to finish.');
+    if (this.working || this.child) throw new Error('Wait for the current operation to finish.');
     this.busy = true;
     this.controller = new AbortController();
     const signal = this.controller.signal;
@@ -485,12 +508,12 @@ class Launcher {
   }
   async removeVersion(id) {
     validId(id);
-    if (this.busy || this.child) throw new Error('Wait for the current operation to finish.');
+    if (this.working || this.child) throw new Error('Wait for the current operation to finish.');
     await fs.rm(safePath(path.join(this.root, 'versions'), id), { recursive: true, force: true });
     return this.snapshot();
   }
   async launch(profileId, accountId = 'demo', launchGameArgs = null) {
-    if (this.busy || this.child) throw new Error('A game or installation is already running.');
+    if (this.working || this.child) throw new Error('A game or installation is already running.');
     const p = this.state.profiles.find(p => p.id === profileId);
     if (!p) throw new Error('Create or select a profile first.');
     this.busy = true;

@@ -79,7 +79,7 @@ async function start() {
   handle('profile:servers', (id, servers) => launcher.servers(id, servers));
   handle('launch', id => launcher.launch(id, accounts.list().selected));
   handle('server:launch', (id, address) => launcher.launchServer(id, accounts.list().selected, address));
-  const idle = () => { if (launcher.busy || launcher.child) throw new Error('Wait for the installation or game to finish before changing accounts.'); };
+  const idle = () => { if (launcher.working || launcher.child) throw new Error('Wait for the installation or game to finish before changing accounts.'); };
   const notifyAccounts = () => { if (window && !window.isDestroyed()) window.webContents.send('launcher:accounts-changed', accounts.list()); };
   handle('accounts:list', () => accounts.list());
   handle('accounts:select', id => { idle(); return accounts.select(id); });
@@ -147,7 +147,7 @@ async function start() {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.on('close', event => {
-    if (!launcher.busy && !launcher.child) return;
+    if (!launcher.working && !launcher.child) return;
     event.preventDefault();
     dialog.showMessageBoxSync(window, { type: 'info', title: 'Operation in progress', message: launcher.child ? 'Close Minecraft before closing the launcher.' : 'Cancel the installation or wait for it to finish before closing the launcher.' });
   });

@@ -1,5 +1,6 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const mods = require('./mods');
 
 // Iris shader packs also work through Oculus.  Modrinth classifies these packs
@@ -79,14 +80,23 @@ async function install(profile, selectedAdapter, projectId, dir, io, signal, pro
   if (!version) throw new Error(`No Iris-compatible shader pack version exists for Minecraft ${profile.version}.`);
   const info = await mods.project(projectId, io, signal), file = primaryFile(version);
   const filename = `blocklane-${mods.modId(projectId, 'project')}-${mods.modId(version.id, 'version')}-${safeFilename(file.filename).replace(/[^a-zA-Z0-9._+-]/g, '_')}`;
-  progress(`Installing ${info.title}`);
-  await io.download({ url: file.url, sha1: file.hashes.sha1.toLowerCase(), size: file.size }, path.join(dir, filename), signal);
-  const value = await manifest(dir, io), prior = value.packs.find(pack => pack.projectId === projectId);
-  value.packs = value.packs.filter(pack => pack.projectId !== projectId);
-  value.packs.push({ projectId, versionId: mods.modId(version.id, 'version'), versionNumber: String(version.version_number || ''), title: info.title, slug: info.slug, iconUrl: info.iconUrl, filename, enabled: prior?.enabled !== false });
-  await saveManifest(dir, value, io);
-  if (prior?.filename && prior.filename !== filename) await fs.rm(path.join(dir, prior.filename + (prior.enabled === false ? '.disabled' : '')), { force: true });
-  return list(profile, dir, io);
+  const temp = path.join(dir, '.blocklane', 'downloads', `${crypto.randomUUID()}.zip`), message = `Downloading ${info.title}`;
+  progress(message, 0, file.size || 0, 'downloading');
+  try {
+    await fs.mkdir(path.dirname(temp), { recursive: true });
+    await io.download({ url: file.url, sha1: file.hashes.sha1.toLowerCase(), size: file.size }, temp, signal, (done, total) => progress(message, done, total, 'downloading'));
+    const finalize = async () => {
+      signal?.throwIfAborted(); progress(`Installing ${info.title}`, file.size || 1, file.size || 1, 'installing');
+      const value = await manifest(dir, io), prior = value.packs.find(pack => pack.projectId === projectId), enabled = prior?.enabled !== false, destination = path.join(dir, filename + (enabled ? '' : '.disabled'));
+      await fs.rm(destination, { force: true }); await fs.rename(temp, destination);
+      value.packs = value.packs.filter(pack => pack.projectId !== projectId);
+      value.packs.push({ projectId, versionId: mods.modId(version.id, 'version'), versionNumber: String(version.version_number || ''), title: info.title, slug: info.slug, iconUrl: info.iconUrl, filename, enabled });
+      await saveManifest(dir, value, io);
+      if (prior?.filename && prior.filename !== filename) await fs.rm(path.join(dir, prior.filename + (prior.enabled === false ? '.disabled' : '')), { force: true });
+      return list(profile, dir, io);
+    };
+    return await (io.withLock ? io.withLock(`shaderpacks:${dir}`, finalize) : finalize());
+  } finally { await fs.rm(temp, { force: true }); }
 }
 
 async function setEnabled(profile, dir, projectId, enabled, io) {

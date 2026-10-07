@@ -1,5 +1,6 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const mods = require('./mods');
 
 function safeFilename(name) {
@@ -73,9 +74,19 @@ async function list(profile, dir, io) {
 }
 async function install(profile, projectId, dir, io, signal, progress = () => {}) {
   await fs.mkdir(dir, { recursive: true }); const choices = await versions(projectId, profile, io, signal), version = choices.find(value => value.version_type === 'release') || choices[0]; if (!version) throw new Error(`No compatible resource pack version exists for Minecraft ${profile.version}.`);
-  const info = await mods.project(projectId, io, signal), file = primaryFile(version), value = await normalizeManagedFilenames(dir, await manifest(dir, io), io), prior = value.packs.find(pack => pack.projectId === projectId), names = await fs.readdir(dir).catch(() => []), occupied = new Set(names.filter(name => name !== prior?.filename && name !== `${prior?.filename}.disabled`).map(name => name.toLowerCase())), filename = readableFilename(titleFilename(info.title, file.filename), projectId, occupied);
-  progress(`Installing ${info.title}`); await io.download({ url: file.url, sha1: file.hashes.sha1.toLowerCase(), size: file.size }, path.join(dir, filename), signal);
-  value.packs = value.packs.filter(pack => pack.projectId !== projectId); value.packs.push({ projectId, versionId: mods.modId(version.id, 'version'), versionNumber: String(version.version_number || ''), title: info.title, slug: info.slug, iconUrl: info.iconUrl, filename, enabled: prior?.enabled !== false }); await saveManifest(dir, value, io); if (prior?.filename && prior.filename !== filename) await fs.rm(path.join(dir, prior.filename + (prior.enabled === false ? '.disabled' : '')), { force: true }); return list(profile, dir, io);
+  const info = await mods.project(projectId, io, signal), file = primaryFile(version), temp = path.join(dir, '.blocklane', 'downloads', `${crypto.randomUUID()}.zip`), message = `Downloading ${info.title}`;
+  progress(message, 0, file.size || 0, 'downloading');
+  try {
+    await fs.mkdir(path.dirname(temp), { recursive: true });
+    await io.download({ url: file.url, sha1: file.hashes.sha1.toLowerCase(), size: file.size }, temp, signal, (done, total) => progress(message, done, total, 'downloading'));
+    const finalize = async () => {
+      signal?.throwIfAborted(); progress(`Installing ${info.title}`, file.size || 1, file.size || 1, 'installing');
+      const value = await normalizeManagedFilenames(dir, await manifest(dir, io), io), prior = value.packs.find(pack => pack.projectId === projectId), names = await fs.readdir(dir).catch(() => []), occupied = new Set(names.filter(name => name !== prior?.filename && name !== `${prior?.filename}.disabled`).map(name => name.toLowerCase())), filename = readableFilename(titleFilename(info.title, file.filename), projectId, occupied), enabled = prior?.enabled !== false, destination = path.join(dir, filename + (enabled ? '' : '.disabled'));
+      await fs.rm(destination, { force: true }); await fs.rename(temp, destination);
+      value.packs = value.packs.filter(pack => pack.projectId !== projectId); value.packs.push({ projectId, versionId: mods.modId(version.id, 'version'), versionNumber: String(version.version_number || ''), title: info.title, slug: info.slug, iconUrl: info.iconUrl, filename, enabled }); await saveManifest(dir, value, io); if (prior?.filename && prior.filename !== filename) await fs.rm(path.join(dir, prior.filename + (prior.enabled === false ? '.disabled' : '')), { force: true }); return list(profile, dir, io);
+    };
+    return await (io.withLock ? io.withLock(`resourcepacks:${dir}`, finalize) : finalize());
+  } finally { await fs.rm(temp, { force: true }); }
 }
 async function setEnabled(profile, dir, projectId, enabled, io) { const value = await normalize(dir, io), pack = value.packs.find(item => item.projectId === mods.modId(projectId, 'project')); if (!pack) throw new Error('Managed resource pack not found.'); if (pack.enabled === Boolean(enabled)) return list(profile, dir, io); await fs.rename(path.join(dir, pack.filename + (pack.enabled === false ? '.disabled' : '')), path.join(dir, pack.filename + (enabled ? '' : '.disabled'))); pack.enabled = Boolean(enabled); await saveManifest(dir, value, io); return list(profile, dir, io); }
 async function remove(profile, dir, projectId, io) { const value = await normalize(dir, io), pack = value.packs.find(item => item.projectId === mods.modId(projectId, 'project')); if (!pack) throw new Error('Managed resource pack not found.'); await fs.rm(path.join(dir, pack.filename + (pack.enabled === false ? '.disabled' : '')), { force: true }); value.packs = value.packs.filter(item => item !== pack); await saveManifest(dir, value, io); return list(profile, dir, io); }

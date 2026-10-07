@@ -31,7 +31,7 @@ contextBridge.exposeInMainWorld('launcher', {
   inspectJava: executable => invoke('java:inspect', executable), browseJava: () => invoke('java:browse'), openFolder: () => invoke('folder:open'),
   checkUpdates: () => invoke('updates:check'), openUpdate: url => invoke('updates:open', url),
   on: (event, callback) => {
-    if (!['progress', 'log', 'game-start', 'game-exit', 'accounts-changed', 'auth-error'].includes(event)) return;
+    if (!['progress', 'content-progress', 'log', 'game-start', 'game-exit', 'accounts-changed', 'auth-error'].includes(event)) return;
     const handler = (_, payload) => callback(payload);
     ipcRenderer.on(`launcher:${event}`, handler);
     return () => ipcRenderer.removeListener(`launcher:${event}`, handler);

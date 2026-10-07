@@ -130,8 +130,9 @@ async function installVersion(profile, version, modsDir, io, signal, progress, r
   const file = primaryFile(version);
   const filename = managedFilename(projectId, versionId, file.filename);
   await fs.mkdir(modsDir, { recursive: true });
-  progress(`Installing ${info.title}`);
-  await io.download({ url: file.url, sha1: file.hashes.sha1.toLowerCase(), size: file.size }, path.join(modsDir, filename), signal);
+  const message = `Downloading ${info.title}`;
+  progress(message, 0, file.size || 0, 'downloading');
+  await io.download({ url: file.url, sha1: file.hashes.sha1.toLowerCase(), size: file.size }, path.join(modsDir, filename), signal, (done, total) => progress(message, done, total, 'downloading'));
 
   const list = await manifest(modsDir, io);
   const prior = list.mods.find(mod => mod.projectId === projectId);
