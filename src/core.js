@@ -517,6 +517,7 @@ class Launcher {
       for (const file of classpath) await fs.access(file).catch(() => { throw new Error('Game files are missing. Repair the version in the Versions tab.'); });
       const gameDir = path.join(this.root, 'instances', p.id);
       await fs.mkdir(gameDir, { recursive: true });
+      await resourcepacks.normalize(this.resourcepacksDir(p), this.loaderIO());
       const localSkin = await this.prepareLocalSkin(p, identity, gameDir, this.controller.signal);
       if (localSkin.active && !localSkin.supported) this.emit('log', 'Local skins require Fabric, Forge, or NeoForge. This vanilla profile will use Minecraft’s default offline skin.');
       const values = {
