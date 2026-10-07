@@ -12,6 +12,7 @@ let loaderRequest = 0, loaderLoading = false;
 let modState = null, modSearchState = { query: '', offset: 0, total: 0, hits: [] }, modUpdates = [], modRequest = 0;
 let shaderState = null, shaderSearchState = { query: '', offset: 0, total: 0, hits: [] }, shaderAdapter = null, libraryTab = 'mods';
 let resourcepackState = null, resourcepackSearchState = { query: '', offset: 0, total: 0, hits: [] };
+let installedModpacks = [], modpackSearchState = { query: '', offset: 0, total: 0, hits: [] }, modpackRequest = 0;
 const contentDownloads = new Map();
 let pendingDependencyInstall = null;
 const dependencyInstallQueue = [];
@@ -22,7 +23,7 @@ function button(text, className, action) { const node = el('button', className, 
 function toast(message, error = false) { clearTimeout(toastTimer); $('#toast').textContent = message; $('#toast').className = error ? 'error' : ''; $('#toast').hidden = false; toastTimer = setTimeout(() => $('#toast').hidden = true, error ? 12000 : 4500); }
 function log(message) { const box = $('#log'); box.textContent = (box.textContent + `\n[${new Date().toLocaleTimeString()}] ${message}`).slice(-80000); box.scrollTop = box.scrollHeight; }
 async function guard(action) { try { return await action(); } catch (e) { toast(e.message, true); log(e.message); } }
-function navigate(view) { $$('.view').forEach(n => n.classList.toggle('active', n.id === `view-${view}`)); $$('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view)); $('#page-title').textContent = view[0].toUpperCase() + view.slice(1); if (view === 'mods') guard(loadModsView); if (view === 'backups') guard(loadBackups); if (view === 'screenshots') guard(loadScreenshots); if (view === 'skins') guard(loadSkins); }
+function navigate(view) { $$('.view').forEach(n => n.classList.toggle('active', n.id === `view-${view}`)); $$('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view)); $('#page-title').textContent = view[0].toUpperCase() + view.slice(1); if (view === 'mods') guard(loadModsView); if (view === 'modpacks') guard(loadModpacks); if (view === 'backups') guard(loadBackups); if (view === 'screenshots') guard(loadScreenshots); if (view === 'skins') guard(loadSkins); }
 function installed(id) { return state.installed.find(v => v.id === id); }
 function currentProfile() { return state.profiles.find(p => p.id === state.selectedProfile); }
 function profileInstalled(p) { return p && installed(p.version) && ((p.loader || 'vanilla') === 'vanilla' || state.installed.some(v => v.baseVersion === p.version && v.loader === p.loader && v.loaderVersion === p.loaderVersion)); }
@@ -41,6 +42,7 @@ function render() {
   select.disabled = busy || running || !state.profiles.length;
   const p = currentProfile();
   $('#nav-mods').textContent = modState?.installed?.length || 0;
+  $('#nav-modpacks').textContent = installedModpacks.length;
   $('#profile-detail').textContent = p ? `${profileLabel(p)}  ·  ${p.memory} GB RAM  ·  ${profileInstalled(p) ? 'Installed' : 'Not installed'}` : 'Pin a version and give your worlds a home.';
   $('#edit-active').disabled = !p || busy || running;
   $('#play-button').disabled = busy || running || accountState.pending || loginStarting || (!p && !catalog.versions.length);
@@ -110,6 +112,33 @@ function renderMods() {
 function renderModDetails(details) { const content = $('#mod-details-content'); content.replaceChildren(); const meta = el('div', 'mod-details-meta'); meta.append(modIcon(details.iconUrl, details.title), el('div', '', `${details.projectType} · ${compactDownloads(details.downloads)} downloads · ${compactDownloads(details.followers)} followers`)); content.append(meta, el('p', 'mod-details-description', details.description || 'No description provided.')); const groups = [['Supported Minecraft', details.gameVersions], ['Loaders', details.loaders], ['Categories', details.categories]]; for (const [label, values] of groups) if (values?.length) { const row = el('div', 'mod-detail-row'); row.append(el('strong', '', label), el('span', '', values.join(' · '))); content.append(row); } if (details.license?.name) content.append(el('div', 'mod-detail-row', `License · ${details.license.name}`)); if (details.body) { content.append(el('strong', 'mod-details-body-heading', 'About this mod')); const body = el('div', 'mod-details-body'); body.innerHTML = markdownToHtml(details.body); body.addEventListener('click', event => { const link = event.target.closest('[data-external-link]'); if (link) { event.preventDefault(); guard(() => api.openModrinth(link.dataset.externalLink)); } }); content.append(body); } const links = el('div', 'mod-detail-links'); for (const [label, url] of [['Issues', details.issuesUrl], ['Source', details.sourceUrl], ['Wiki', details.wikiUrl], ['Discord', details.discordUrl]]) if (url) links.append(button(label, 'quiet small', () => guard(() => api.openModrinth(url)))); if (links.children.length) { content.append(el('strong', '', 'Project links'), links); } }
 async function showModDetails(projectId) { const p = selectedModProfile(); if (!p) return; const shaders = libraryTab === 'shaders', packs = libraryTab === 'resourcepacks', kind = shaders ? 'shader' : packs ? 'resourcepack' : 'mod', dialog = $('#mod-details-dialog'); $('#mod-details-title').textContent = 'Loading…'; $('#mod-details-content').replaceChildren(el('p', 'field-note', 'Loading project details…')); $('#install-from-details').disabled = true; dialog.showModal(); try { const details = await api.modDetails(p.id, projectId); $('#mod-details-title').textContent = details.title; renderModDetails(details); const installed = new Set(((shaders ? shaderState : packs ? resourcepackState : modState)?.installed || []).map(mod => mod.projectId)); const type = shaders ? 'shader pack' : packs ? 'resource pack' : 'mod', install = $('#install-from-details'), meta = { kind, profileId: p.id, projectId }; install.disabled = contentDownloads.has(contentKey(kind, p.id, projectId)); install.textContent = install.disabled ? 'Downloading…' : installed.has(projectId) ? `Reinstall ${type}` : `Install ${type}`; install.onclick = async () => { dialog.close(); await installLibraryItem(meta, () => shaders ? api.installShader(p.id, projectId) : packs ? api.installResourcepack(p.id, projectId) : api.installMod(p.id, projectId), !shaders && !packs ? () => api.installMod(p.id, projectId, true) : null); }; $('#open-modrinth').onclick = () => guard(() => api.openModrinth(details.projectUrl)); } catch (error) { $('#mod-details-content').replaceChildren(el('p', 'field-note', error.message)); } }
 function emptyMods(title, copy) { const node = el('div', 'empty compact'); node.append(el('h3', '', title), el('p', '', copy)); return node; }
+
+function renderModpacks() {
+  $('#nav-modpacks').textContent = installedModpacks.length; $('#modpack-count').textContent = `${installedModpacks.length} installed`;
+  const installedList = $('#installed-modpacks'); installedList.replaceChildren();
+  if (!installedModpacks.length) installedList.append(emptyMods('No modpacks installed', 'Install from Modrinth or import a local .mrpack file.'));
+  for (const pack of installedModpacks) {
+    const card = el('article', 'mod-card'), copy = el('div', 'mod-card-copy'), actions = el('div', 'mod-actions');
+    copy.append(el('strong', '', pack.title || pack.profileName), el('small', '', `${pack.versionName || pack.versionNumber || 'Local pack'} · ${loaderNames[pack.loader] || pack.loader} ${pack.version}`));
+    actions.append(button('Play profile', 'primary small', async () => { state = await api.selectProfile(pack.profileId); render(); navigate('play'); }));
+    if (pack.projectId) actions.append(button('Update', 'quiet small', () => runModpackTask(() => api.updateModpack(pack.profileId), 'Modpack updated.')));
+    actions.append(button('Remove', 'quiet small', () => { actions.replaceChildren(el('small', '', 'Remove pack files? Worlds and settings stay.'), button('Keep', 'quiet small', renderModpacks), button('Remove', 'primary small', () => runModpackTask(() => api.removeModpack(pack.profileId), 'Modpack removed.'))); }));
+    card.append(modIcon(pack.iconUrl, pack.title), copy, actions); installedList.append(card);
+  }
+  const results = $('#modpack-results'); results.replaceChildren();
+  if (!modpackSearchState.hits.length) results.append(emptyMods(modpackSearchState.query ? 'No modpacks found' : 'Discover modpacks', modpackSearchState.query ? 'Try another search.' : 'Browse popular packs from Modrinth.'));
+  for (const hit of modpackSearchState.hits) {
+    const card = el('article', 'mod-card result'), copy = el('div', 'mod-card-copy'), task = [...contentDownloads.values()].find(item => item.kind === 'modpack' && item.projectId === hit.projectId);
+    copy.append(el('strong', '', hit.title), el('small', '', `by ${hit.author} · ${compactDownloads(hit.downloads)} downloads`), el('p', '', hit.description)); if (task && task.status !== 'complete') copy.append(downloadIndicator(task));
+    const install = button(task && !['complete', 'failed'].includes(task.status) ? 'Installing…' : 'Install', 'primary small', () => runModpackTask(() => api.installModpack(hit.projectId), `${hit.title} installed.`)); install.disabled = Boolean(task && !['complete', 'failed'].includes(task.status));
+    card.append(modIcon(hit.iconUrl, hit.title), copy, install); card.addEventListener('click', event => { if (!event.target.closest('button')) showModpackDetails(hit.projectId); }); results.append(card);
+  }
+  $('#modpack-result-count').textContent = `${modpackSearchState.total.toLocaleString()} results`; $('#more-modpacks').hidden = modpackSearchState.hits.length >= modpackSearchState.total;
+}
+async function loadModpacks() { const request = ++modpackRequest; const [installed, discovery] = await Promise.all([api.listModpacks(), api.searchModpacks(modpackSearchState.query, modpackSearchState.offset)]); if (request !== modpackRequest) return; installedModpacks = installed; modpackSearchState = { query: modpackSearchState.query, offset: discovery.offset, total: discovery.total, hits: discovery.hits }; renderModpacks(); }
+async function searchModpacks(append = false) { const query = $('#modpack-search').value.trim(), offset = append ? modpackSearchState.hits.length : 0, result = await api.searchModpacks(query, offset); modpackSearchState = { query, offset, total: result.total, hits: append ? [...modpackSearchState.hits, ...result.hits] : result.hits }; renderModpacks(); }
+async function runModpackTask(action, success) { $('#import-modpack').disabled = true; try { const result = await action(); if (!result) return; if (result.state) state = result.state; else state = await api.state(); installedModpacks = await api.listModpacks(); render(); renderModpacks(); toast(success); } finally { $('#import-modpack').disabled = false; } }
+async function showModpackDetails(projectId) { const dialog = $('#modpack-details-dialog'); $('#modpack-details-title').textContent = 'Loading…'; $('#modpack-details-content').replaceChildren(el('p', 'field-note', 'Loading modpack details…')); $('#install-modpack-details').disabled = true; dialog.showModal(); try { const details = await api.modpackDetails(projectId); $('#modpack-details-title').textContent = details.title; const content = $('#modpack-details-content'); content.replaceChildren(); const meta = el('div', 'mod-details-meta'); meta.append(modIcon(details.iconUrl, details.title), el('div', '', `${compactDownloads(details.downloads)} downloads · ${compactDownloads(details.followers)} followers`)); content.append(meta, el('p', 'mod-details-description', details.description)); if (details.gallery?.length) { const gallery = el('div', 'modpack-gallery'); for (const shot of details.gallery) { const image = document.createElement('img'); image.src = shot.url; image.alt = shot.title || details.title; image.loading = 'lazy'; gallery.append(image); } content.append(gallery); } for (const [label, values] of [['Minecraft versions', details.gameVersions], ['Loaders', details.loaders], ['Categories', details.categories]]) if (values?.length) { const row = el('div', 'mod-detail-row'); row.append(el('strong', '', label), el('span', '', values.join(' · '))); content.append(row); } if (details.body) { const body = el('div', 'mod-details-body'); body.innerHTML = markdownToHtml(details.body); body.addEventListener('click', event => { const link = event.target.closest('[data-external-link]'); if (link) { event.preventDefault(); guard(() => api.openModrinth(link.dataset.externalLink)); } }); content.append(body); } $('#open-modpack-page').onclick = () => guard(() => api.openModrinth(details.projectUrl)); const install = $('#install-modpack-details'); install.disabled = false; install.onclick = () => { dialog.close(); guard(() => runModpackTask(() => api.installModpack(projectId), `${details.title} installed.`)); }; } catch (error) { $('#modpack-details-content').replaceChildren(el('p', 'field-note', error.message)); } }
 function confirmModRemoval(card, mod, shaders = false, packs = false) {
   const type = shaders ? 'shader pack' : packs ? 'resource pack' : 'mod'; const actions = card.querySelector('.mod-actions'); actions.replaceChildren(el('small', '', `Remove this ${type}?`), button('Keep', 'quiet small', renderMods), button('Remove', 'primary small', async () => { await runModTask(null, () => shaders ? api.removeShader(selectedModProfile().id, mod.projectId) : packs ? api.removeResourcepack(selectedModProfile().id, mod.projectId) : api.removeMod(selectedModProfile().id, mod.projectId)); }));
 }
@@ -350,6 +379,12 @@ $('#open-mods-folder').addEventListener('click', () => guard(() => libraryTab ==
 $('#mods-create-profile').addEventListener('click', () => openProfile());
 $('#check-mod-updates').addEventListener('click', () => guard(async () => { modUpdates = await api.modUpdates(selectedModProfile().id); renderMods(); if (!modUpdates.length) toast('All managed mods are up to date.'); }));
 $('#update-all-mods').addEventListener('click', () => guard(() => runModTask(null, () => api.updateAllMods(selectedModProfile().id))));
+$('#modpack-search-form').addEventListener('submit', event => { event.preventDefault(); guard(() => searchModpacks(false)); });
+$('#more-modpacks').addEventListener('click', () => guard(() => searchModpacks(true)));
+$('#import-modpack').addEventListener('click', () => guard(() => runModpackTask(() => api.importModpack(), 'Local modpack imported.')));
+$('#close-modpack-details').addEventListener('click', () => $('#modpack-details-dialog').close());
+$('#modpack-details-dialog').addEventListener('cancel', event => { event.preventDefault(); event.currentTarget.close(); });
+$('#modpack-details-dialog').addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); });
 
 async function installSelectedProfile(p) {
   busy = true; render(); $('#download-panel').hidden = false; $('#cancel-install').disabled = false;
@@ -440,7 +475,7 @@ $('#check-java').addEventListener('click', async () => {
   finally { $('#check-java').disabled = false; }
 });
 api.on('progress', p => { $('#download-title').textContent = p.message; $('#download-count').textContent = `${p.done.toLocaleString()} / ${p.total.toLocaleString()} files checked`; $('#download-progress').max = p.total; $('#download-progress').value = p.done; });
-api.on('content-progress', task => { contentDownloads.set(task.key, task); if (selectedModProfile()?.id === task.profileId) renderMods(); });
+api.on('content-progress', task => { contentDownloads.set(task.key, task); if (task.kind === 'modpack' && $('#view-modpacks').classList.contains('active')) renderModpacks(); else if (selectedModProfile()?.id === task.profileId) renderMods(); });
 api.on('log', log);
 api.on('game-start', () => { running = true; render(); });
 api.on('game-exit', ({ code }) => { running = false; render(); log(`Minecraft exited (code ${code}).`); if (code !== 0) toast('Minecraft closed unexpectedly. Open Activity for the game log.', true); });
@@ -477,7 +512,7 @@ $('#login-dialog').addEventListener('cancel', event => { event.preventDefault();
 
 async function boot() {
   if (!api) { $('#connection-label').textContent = 'Open this app with Electron'; return; }
-  state = await api.state(); busy = state.busy; running = state.running; render();
+  state = await api.state(); busy = state.busy; running = state.running; try { installedModpacks = await api.listModpacks(); } catch {} render();
   try { accountState = await api.accounts(); render(); } catch (error) { toast(error.message, true); }
   $('#stat-java').textContent = 'Managed'; $('#java-caption').textContent = 'Java 25 included · automatic selection';
   void checkLauncherUpdates({ silent: true });

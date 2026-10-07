@@ -17,6 +17,7 @@ const loaders = require('./loaders');
 const mods = require('./mods');
 const shaders = require('./shaders');
 const resourcepacks = require('./resourcepacks');
+const modpacks = require('./modpacks');
 const LOCAL_SKIN_MOD = 'idMHQ4n2';
 
 const MANIFEST = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json';
@@ -383,7 +384,7 @@ class Launcher {
   }
   progress(message, done = 0, total = 1) { this.emit('progress', { message, done, total }); }
   cancel() { this.controller?.abort(new Error('Installation cancelled. Downloaded files are kept for retry.')); for (const controller of this.contentTasks.values()) controller.abort(new Error('Download cancelled.')); }
-  loaderIO() { return { allowed, trustedUrl, validId, safePath, readJson, atomicJson, hashFile, download, remoteJson, remoteText, withLock: (key, task) => this.withContentLock(key, task) }; }
+  loaderIO() { return { allowed, trustedUrl, validId, safePath, readJson, atomicJson, hashFile, download, remoteJson, remoteText, pool, withLock: (key, task) => this.withContentLock(key, task) }; }
   async withContentLock(key, task) {
     const previous = this.contentLocks.get(key) || Promise.resolve(); let release;
     const gate = new Promise(resolve => { release = resolve; }), tail = previous.then(() => gate);
@@ -476,6 +477,54 @@ class Launcher {
   async resourcepackInstall(profileId, projectId) { const p = this.modProfile(profileId); return this.runContentTask('resourcepack', profileId, projectId, (signal, report) => resourcepacks.install(p, projectId, this.resourcepacksDir(p), this.loaderIO(), signal, report)); }
   async resourcepackEnable(profileId, projectId, enabled) { if (this.working || this.child) throw new Error('Wait for the current operation or game to finish.'); const p = this.modProfile(profileId); return resourcepacks.setEnabled(p, this.resourcepacksDir(p), projectId, Boolean(enabled), this.loaderIO()); }
   async resourcepackRemove(profileId, projectId) { if (this.working || this.child) throw new Error('Wait for the current operation or game to finish.'); const p = this.modProfile(profileId); return resourcepacks.remove(p, this.resourcepacksDir(p), projectId, this.loaderIO()); }
+  async modpackSearch(query = '', offset = 0) { return modpacks.search(query, offset, this.loaderIO()); }
+  async modpackDetails(projectId) { return modpacks.project(projectId, this.loaderIO()); }
+  async modpackList() { return this.state.profiles.filter(profile => profile.modpack).map(profile => ({ profileId: profile.id, profileName: profile.name, version: profile.version, loader: profile.loader, ...profile.modpack })); }
+  async modpackInstall(projectId, profileId = null) {
+    projectId = modpacks.id(projectId); if (profileId) validId(profileId);
+    return this.runContentTask('modpack', profileId || 'new', projectId, (signal, report) => this.withContentLock('modpacks', async () => {
+      const info = await modpacks.project(projectId, this.loaderIO(), signal), versions = await modpacks.versions(projectId, this.loaderIO(), signal);
+      const version = versions.find(item => item.version_type === 'release') || versions[0]; if (!version) throw new Error('This Modrinth project has no installable modpack version.');
+      const file = modpacks.packFile(version), archive = path.join(this.root, 'modpack-cache', `${version.id}.mrpack`);
+      report(`Downloading ${info.title}`, 0, file.size || 0, 'downloading');
+      await download({ url: file.url, sha1: file.hashes.sha1.toLowerCase(), size: file.size }, archive, signal, (done, total) => report(`Downloading ${info.title}`, done, total, 'downloading'));
+      return this.installModpackArchive(archive, { source: 'modrinth', projectId, versionId: version.id, versionNumber: String(version.version_number || ''), title: info.title, slug: info.slug, iconUrl: info.iconUrl }, profileId, signal, report);
+    }));
+  }
+  async modpackImport(file) {
+    if (typeof file !== 'string' || path.extname(file).toLowerCase() !== '.mrpack') throw new Error('Choose a Modrinth .mrpack file.');
+    const stat = await fs.stat(file); if (!stat.isFile() || stat.size > 2 * 1024 * 1024 * 1024) throw new Error('The modpack file is too large.');
+    const taskId = crypto.createHash('sha256').update(file).digest('hex').slice(0, 12);
+    return this.runContentTask('modpack', 'new', taskId, (signal, report) => this.withContentLock('modpacks', () => this.installModpackArchive(file, { source: 'local' }, null, signal, report)));
+  }
+  async installModpackArchive(archive, metadata, profileId, signal, report) {
+    const io = this.loaderIO(), staging = path.join(this.root, 'modpack-staging', crypto.randomUUID());
+    try {
+      const staged = await modpacks.stagePack(archive, staging, io, signal, report), spec = modpacks.profileSpec(staged.index), catalog = await this.catalog();
+      if (!catalog.versions.some(item => item.id === spec.version)) throw new Error(`Minecraft ${spec.version} is not in Mojang's official catalog.`);
+      if (spec.loader !== 'vanilla') {
+        const available = await this.loaderVersions(spec.loader, spec.version), match = available.find(item => item.version === spec.loaderVersion) || available.find(item => item.version.endsWith(`-${spec.loaderVersion}`));
+        if (!match) throw new Error(`${spec.loader} ${spec.loaderVersion} is unavailable for Minecraft ${spec.version}.`); spec.loaderVersion = match.version;
+      }
+      const existing = profileId ? this.profile(profileId) : null;
+      if (existing && (!existing.modpack || metadata.projectId !== existing.modpack.projectId)) throw new Error('This profile belongs to a different modpack.');
+      const profile = validateProfile({ ...spec, id: existing?.id }); profile.id ||= crypto.randomUUID();
+      const instance = path.join(this.root, 'instances', profile.id), prior = await modpacks.readManifest(instance, io), oldManaged = prior?.managedFiles || [];
+      await fs.mkdir(instance, { recursive: true }); await modpacks.applyStaging(instance, staging, oldManaged, staged.managed, Boolean(existing));
+      const pack = { ...metadata, title: metadata.title || staged.index.name, versionName: staged.index.versionId || metadata.versionNumber || '', installedAt: new Date().toISOString() };
+      await modpacks.writeManifest(instance, { schema: 1, pack, managedFiles: staged.managed }, io);
+      profile.modpack = pack;
+      if (existing) this.state.profiles[this.state.profiles.findIndex(item => item.id === existing.id)] = { ...existing, ...profile }; else this.state.profiles.push(profile);
+      this.state.selectedProfile = profile.id; await this.persist(); report(`${pack.title} is ready`, 1, 1, 'complete'); return { state: await this.snapshot(), profileId: profile.id, pack };
+    } finally { await fs.rm(staging, { recursive: true, force: true }); }
+  }
+  async modpackUpdate(profileId) { const profile = this.profile(profileId); if (!profile.modpack?.projectId) throw new Error('Local modpacks cannot be updated from Modrinth.'); return this.modpackInstall(profile.modpack.projectId, profileId); }
+  async modpackRemove(profileId) {
+    if (this.working || this.child) throw new Error('Wait for the current operation to finish.'); const profile = this.profile(profileId); if (!profile.modpack) throw new Error('This profile is not a managed modpack.');
+    const instance = path.join(this.root, 'instances', profile.id), manifest = await modpacks.readManifest(instance, this.loaderIO());
+    for (const relative of manifest?.managedFiles || []) if (!modpacks.protectedPath(relative)) await fs.rm(path.join(instance, ...modpacks.safePackPath(relative).split('/')), { force: true });
+    await fs.rm(path.join(instance, '.blocklane', 'modpack.json'), { force: true }); this.state.profiles = this.state.profiles.filter(item => item.id !== profileId); if (this.state.selectedProfile === profileId) this.state.selectedProfile = this.state.profiles[0]?.id || null; return this.persist();
+  }
   async prepareLocalSkin(profile, identity, gameDir, signal) {
     if (!identity.local) return { active: false, supported: true };
     const source = path.join(this.root, 'skins', `${identity.uuid}.png`);

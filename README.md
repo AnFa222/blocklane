@@ -2,7 +2,7 @@
 
 An independent Minecraft Java Edition launcher for Windows x64. Blocklane installs and switches Minecraft versions with Vanilla, Fabric, Quilt, Forge, NeoForge, or LiteLoader profiles, includes Java in portable builds, and offers Demo plus Microsoft multi-account support.
 
-**Status: early development, v0.4.23.** Microsoft OAuth, Xbox Live authentication, and XSTS authorization have succeeded in a live user test. Minecraft Services currently rejects Blocklane's application with HTTP 403. Application review is required before full-game sign-in can be validated. Demo remains available. Players never need to register an application or enter a client ID.
+**Status: early development, v0.4.24.** Microsoft OAuth, Xbox Live authentication, and XSTS authorization have succeeded in a live user test. Minecraft Services currently rejects Blocklane's application with HTTP 403. Application review is required before full-game sign-in can be validated. Demo remains available. Players never need to register an application or enter a client ID.
 
 ![Blocklane interface preview](preview.png)
 
@@ -16,6 +16,7 @@ The preview uses test profile data. It does not show an authenticated game sessi
 - Profiles with pinned game versions, RAM allocation, Java selection, and separate worlds/settings.
 - Fabric, Quilt, Forge, NeoForge, and LiteLoader profiles with compatible loader catalogs, pinned builds, installation/repair, and separate mods folders.
 - Modrinth mod manager with loader/version-filtered search, checksum-verified installs, required dependencies, enable/disable, updates, removal, and local JAR visibility.
+- Modrinth modpack browser and local `.mrpack` import with automatic profiles, checksum verification, staged installation, updates, rollback, and preservation of worlds and personal settings.
 - A Shaders tab that appears for profiles with Iris (Fabric/Quilt) or Oculus (Forge/NeoForge), with compatible Modrinth shader packs filtered to the profile Minecraft version and stored in its own `shaderpacks` folder.
 - Bundled Java 25 in portable Windows builds; automatic installation of matching Mojang runtimes for other versions.
 - Automatic GitHub release checking at startup and a manual header check, with a direct link to the published installer when a newer version is available.
@@ -52,9 +53,9 @@ npm run bundle-java
 npm run package -- --release
 ```
 
-The resulting folder is `dist/Blocklane-0.4.23-win32-x64/`; open `Blocklane.exe` and keep its supporting files beside it. Packaging includes Mojang's Java runtime and its license notices. The launcher is currently unsigned.
+The resulting folder is `dist/Blocklane-0.4.24-win32-x64/`; open `Blocklane.exe` and keep its supporting files beside it. Packaging includes Mojang's Java runtime and its license notices. The launcher is currently unsigned.
 
-To make the Windows installer, run `npm run installer`. This uses electron-builder's NSIS target to produce `dist/nsis/Blocklane-0.4.23-Setup.exe`, which provides the standard Windows installation wizard, creates shortcuts, and includes the launcher plus its bundled Java runtime.
+To make the Windows installer, run `npm run installer`. This uses electron-builder's NSIS target to produce `dist/nsis/Blocklane-0.4.24-Setup.exe`, which provides the standard Windows installation wizard, creates shortcuts, and includes the launcher plus its bundled Java runtime.
 
 Blocklane's public application ID is embedded in `src/app-config.json`. Developers can override it with `BLOCKLANE_MICROSOFT_CLIENT_ID` at build time. A public desktop client does not use a client secret. The release packaging check verifies that an ID is configured; it does not verify service approval.
 
@@ -71,7 +72,7 @@ Data lives under `%APPDATA%/blocklane`. Account tokens are encrypted locally wit
 
 ## Scope
 
-Java Edition profiles can select every version in Mojang's official catalog, including historical Alpha and Beta entries. Fabric, Quilt, Forge, NeoForge, and LiteLoader remain limited to the Minecraft versions published by their own catalogs; LiteLoader is restricted to Minecraft 1.12.2. Bedrock and in-app update installation are future work. Historical versions may still have game-specific compatibility limitations on modern Windows. Full authenticated gameplay is pending Minecraft Services access approval.
+Java Edition profiles can select every version in Mojang's official catalog, including historical Alpha and Beta entries. Fabric, Quilt, Forge, NeoForge, and LiteLoader remain limited to the Minecraft versions published by their own catalogs; LiteLoader is restricted to Minecraft 1.12.2. Bedrock and in-app update installation are future work. Historical versions may still have game-specific compatibility limitations on modern Windows. Full authenticated gameplay is pending Minecraft Services access approval. See [MODPACKS.md](MODPACKS.md) for pack-management behavior.
 
 See [Microsoft application setup](MICROSOFT-SETUP.md), [privacy information](PRIVACY.md), and [security reporting](SECURITY.md).
 

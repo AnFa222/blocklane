@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld('launcher', {
   enableMod: (profileId, projectId, enabled) => invoke('mods:enable', profileId, projectId, enabled),
   removeMod: (profileId, projectId) => invoke('mods:remove', profileId, projectId),
   modUpdates: profileId => invoke('mods:updates', profileId), updateAllMods: profileId => invoke('mods:update-all', profileId),
+  searchModpacks: (query, offset = 0) => invoke('modpacks:search', query, offset), modpackDetails: projectId => invoke('modpacks:details', projectId),
+  listModpacks: () => invoke('modpacks:list'), installModpack: projectId => invoke('modpacks:install', projectId), importModpack: () => invoke('modpacks:import'), updateModpack: profileId => invoke('modpacks:update', profileId), removeModpack: profileId => invoke('modpacks:remove', profileId),
   shaderStatus: profileId => invoke('shaders:status', profileId), searchShaders: (profileId, query, offset = 0) => invoke('shaders:search', profileId, query, offset),
   listShaders: profileId => invoke('shaders:list', profileId), installShader: (profileId, projectId) => invoke('shaders:install', profileId, projectId),
   enableShader: (profileId, projectId, enabled) => invoke('shaders:enable', profileId, projectId, enabled), removeShader: (profileId, projectId) => invoke('shaders:remove', profileId, projectId),

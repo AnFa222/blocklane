@@ -49,6 +49,13 @@ async function start() {
   handle('mods:remove', (profileId, projectId) => launcher.modRemove(profileId, projectId));
   handle('mods:updates', profileId => launcher.modUpdates(profileId));
   handle('mods:update-all', profileId => launcher.modUpdateAll(profileId));
+  handle('modpacks:search', (query, offset) => launcher.modpackSearch(query, offset));
+  handle('modpacks:details', projectId => launcher.modpackDetails(projectId));
+  handle('modpacks:list', () => launcher.modpackList());
+  handle('modpacks:install', projectId => launcher.modpackInstall(projectId));
+  handle('modpacks:import', async () => { const result = await dialog.showOpenDialog(window, { title: 'Import Modrinth modpack', properties: ['openFile'], filters: [{ name: 'Modrinth modpack', extensions: ['mrpack'] }] }); return result.canceled ? null : launcher.modpackImport(result.filePaths[0]); });
+  handle('modpacks:update', profileId => launcher.modpackUpdate(profileId));
+  handle('modpacks:remove', profileId => launcher.modpackRemove(profileId));
   handle('shaders:status', profileId => launcher.shaderStatus(profileId));
   handle('shaders:search', (profileId, query, offset) => launcher.shaderSearch(profileId, query, offset));
   handle('shaders:list', profileId => launcher.shaderList(profileId));
