@@ -10,6 +10,7 @@ const iris = { installed: [{ slug: 'iris', title: 'Iris Shaders', filename: 'iri
 
 test('shader packs require an installed compatible renderer', () => {
   assert.deepEqual(shaders.adapter(profile, iris), { id: 'iris', label: 'Iris', category: 'iris' });
+  assert.deepEqual(shaders.adapter({ ...profile, loader: 'quilt' }, iris), { id: 'iris', label: 'Iris', category: 'iris' });
   assert.deepEqual(shaders.adapter({ ...profile, loader: 'forge' }, { installed: [{ slug: 'oculus', title: 'Oculus', filename: 'oculus.jar' }], local: [] }), { id: 'oculus', label: 'Oculus' });
   assert.equal(shaders.adapter(profile, { installed: [], local: [] }), null);
   assert.deepEqual(shaders.adapter({ ...profile, loader: 'forge' }, { installed: [{ slug: 'optifine', title: 'OptiFine', filename: 'OptiFine.jar' }], local: [] }), { id: 'optifine', label: 'OptiFine', category: 'optifine' });

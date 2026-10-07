@@ -80,7 +80,7 @@ async function readJson(file, fallback) {
 
 function trustedUrl(value) {
   const url = new URL(value);
-  if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443') || !['piston-meta.mojang.com', 'piston-data.mojang.com', 'launchermeta.mojang.com', 'launcher.mojang.com', 'resources.download.minecraft.net', 'libraries.minecraft.net', 'meta.fabricmc.net', 'maven.fabricmc.net', 'maven.minecraftforge.net', 'maven.neoforged.net', 'api.modrinth.com', 'cdn.modrinth.com'].includes(url.hostname)) throw new Error('Untrusted download host.');
+  if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443') || !['piston-meta.mojang.com', 'piston-data.mojang.com', 'launchermeta.mojang.com', 'launcher.mojang.com', 'resources.download.minecraft.net', 'libraries.minecraft.net', 'meta.fabricmc.net', 'maven.fabricmc.net', 'meta.quiltmc.org', 'maven.quiltmc.org', 'maven.minecraftforge.net', 'maven.neoforged.net', 'dl.liteloader.com', 'repo.liteloader.com', 'repo.mumfrey.com', 'repo.spongepowered.org', 'api.modrinth.com', 'cdn.modrinth.com'].includes(url.hostname)) throw new Error('Untrusted download host.');
   return url;
 }
 
@@ -108,30 +108,37 @@ async function remoteText(url, signal) {
   }, signal);
 }
 
-async function hashFile(file) {
-  const hash = crypto.createHash('sha1');
+async function hashFileAs(file, algorithm) {
+  const hash = crypto.createHash(algorithm);
   for await (const part of createReadStream(file)) hash.update(part);
   return hash.digest('hex');
+}
+async function hashFile(file) { return hashFileAs(file, 'sha1'); }
+
+function downloadChecksum(item) {
+  if (/^[a-f0-9]{40}$/.test(item.sha1 || '')) return { algorithm: 'sha1', value: item.sha1 };
+  if (/^[a-f0-9]{32}$/.test(item.md5 || '')) return { algorithm: 'md5', value: item.md5 };
+  throw new Error('Download is missing a valid checksum.');
 }
 
 async function download(item, dest, signal, onProgress = () => {}) {
   signal?.throwIfAborted();
-  if (!/^[a-f0-9]{40}$/.test(item.sha1 || '')) throw new Error('Download is missing a valid checksum.');
+  const checksum = downloadChecksum(item);
   try {
     const stat = await fs.stat(dest);
-    if ((!item.size || stat.size === item.size) && await hashFile(dest) === item.sha1) { onProgress(stat.size, item.size || stat.size); return; }
+    if ((!item.size || stat.size === item.size) && await hashFileAs(dest, checksum.algorithm) === checksum.value) { onProgress(stat.size, item.size || stat.size); return; }
   } catch (error) { if (error.code !== 'ENOENT') throw error; }
   await fs.mkdir(path.dirname(dest), { recursive: true });
   return network.withRetries(async () => {
   const temp = dest + '.' + crypto.randomUUID() + '.part';
   try {
     const res = await response(item.url, signal);
-    const hash = crypto.createHash('sha1');
+    const hash = crypto.createHash(checksum.algorithm);
     let bytes = 0, lastReport = 0;
     onProgress(0, item.size || 0);
     const verifier = new Transform({ transform(chunk, encoding, next) { hash.update(chunk); bytes += chunk.length; const now = Date.now(); if (now - lastReport >= 80 || (item.size && bytes >= item.size)) { lastReport = now; onProgress(bytes, item.size || 0); } next(null, chunk); } });
     await pipeline(res, verifier, createWriteStream(temp), { signal });
-    if (hash.digest('hex') !== item.sha1 || (item.size != null && bytes !== item.size)) {
+    if (hash.digest('hex') !== checksum.value || (item.size != null && bytes !== item.size)) {
       const error = new Error('A download failed its integrity check. Retry to repair it.');
       error.code = 'EINTEGRITY'; throw error;
     }
@@ -181,6 +188,21 @@ function libraryPlan(meta, root, system = host) {
     }
   }
   return { artifacts, natives };
+}
+
+function legacyArguments(value) {
+  if (typeof value !== 'string' || !value.trim()) throw new Error('Legacy Minecraft metadata has no launch arguments.');
+  const args = []; value.replace(/"([^"]*)"|'([^']*)'|([^\s]+)/g, (_, double, single, bare) => { args.push(double ?? single ?? bare); return ''; });
+  return args;
+}
+
+function normalizeVersionMetadata(meta) {
+  if (meta?.arguments?.jvm && meta?.arguments?.game) return meta;
+  if (!meta?.minecraftArguments || !meta.downloads?.client) throw new Error('This Minecraft version uses unsupported legacy launch metadata.');
+  return { ...meta, javaVersion: meta.javaVersion || { component: 'jre-legacy', majorVersion: 8 }, arguments: {
+    jvm: ['-Djava.library.path=${natives_directory}', '-Dminecraft.launcher.brand=${launcher_name}', '-Dminecraft.launcher.version=${launcher_version}', '-cp', '${classpath}'],
+    game: legacyArguments(meta.minecraftArguments)
+  } };
 }
 
 function validateProfile(input) {
@@ -470,8 +492,8 @@ class Launcher {
       if (!entry) throw new Error('Version is not in the official catalog.');
       const metaFile = path.join(versionDir, `${id}.json`);
       await download(entry, metaFile, signal);
-      const meta = await readJson(metaFile);
-      if (!meta.arguments || !meta.downloads?.client) throw new Error('This first release supports vanilla 1.13+ and modern snapshots. Legacy versions are not supported yet.');
+      const meta = normalizeVersionMetadata(await readJson(metaFile));
+      await atomicJson(metaFile, meta);
       // An interrupted repair must never leave a completed marker behind.
       await fs.rm(path.join(versionDir, 'installed.json'), { force: true });
       await this.ensureJava(meta, signal);
@@ -542,7 +564,7 @@ class Launcher {
       await fs.mkdir(gameDir, { recursive: true });
       await resourcepacks.normalize(this.resourcepacksDir(p), this.loaderIO());
       const localSkin = await this.prepareLocalSkin(p, identity, gameDir, this.controller.signal);
-      if (localSkin.active && !localSkin.supported) this.emit('log', 'Local skins require Fabric, Forge, or NeoForge. This vanilla profile will use Minecraft’s default offline skin.');
+      if (localSkin.active && !localSkin.supported) this.emit('log', 'Local skin support is unavailable for this profile. Minecraft will use its default offline skin.');
       const values = {
         natives_directory: path.join(baseDir, 'natives'), launcher_name: 'Blocklane', launcher_version: launcherVersion,
         classpath: classpath.join(path.delimiter), classpath_separator: path.delimiter, library_directory: path.join(this.root, 'libraries'),
@@ -579,5 +601,5 @@ class Launcher {
   }
 }
 
-module.exports = { Launcher, allowed, expandArgs, safePath, validId, validateProfile, libraryPlan, inspectJava, download, pool, atomicJson, readJson, trustedUrl, extractNatives, host, hashFile, remoteJson, launchIdentity, redactStream };
+module.exports = { Launcher, allowed, expandArgs, safePath, validId, validateProfile, libraryPlan, legacyArguments, normalizeVersionMetadata, inspectJava, download, pool, atomicJson, readJson, trustedUrl, extractNatives, host, hashFile, remoteJson, launchIdentity, redactStream };
 

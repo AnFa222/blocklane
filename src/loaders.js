@@ -6,14 +6,17 @@ const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { gameEnvironment } = require('./launch-policy');
 const run = promisify(execFile);
-const TYPES = ['vanilla', 'fabric', 'forge', 'neoforge'];
+const TYPES = ['vanilla', 'fabric', 'quilt', 'forge', 'neoforge', 'liteloader'];
+const QUILT_META = 'https://meta.quiltmc.org/v3/versions/loader';
+const LITELOADER_META = 'https://dl.liteloader.com/versions/versions.json';
+const LITELOADER_MAVEN = 'https://repo.mumfrey.com/content/repositories/snapshots/';
 const MAVEN = {
   forge: 'https://maven.minecraftforge.net/net/minecraftforge/forge/',
   neoforge: 'https://maven.neoforged.net/releases/net/neoforged/neoforge/'
 };
 function loaderSettings(profile) {
   const loader = profile.loader || 'vanilla', loaderVersion = profile.loaderVersion || '';
-  if (!TYPES.includes(loader)) throw new Error('Choose Vanilla, Fabric, Forge, or NeoForge.');
+  if (!TYPES.includes(loader)) throw new Error('Choose Vanilla, Fabric, Quilt, Forge, NeoForge, or LiteLoader.');
   if (loader !== 'vanilla' && !/^[a-zA-Z0-9][a-zA-Z0-9._+-]{0,100}$/.test(loaderVersion)) throw new Error('Choose a compatible loader version.');
   return { loader, loaderVersion: loader === 'vanilla' ? '' : loaderVersion };
 }
@@ -43,11 +46,51 @@ async function versions(loader, minecraft, io, signal) {
     const rows = await io.remoteJson(`https://meta.fabricmc.net/v2/versions/loader/${encodeURIComponent(minecraft)}`, signal);
     return rows.map(r => ({ version: r.loader.version, stable: r.loader.stable }));
   }
+  if (loader === 'quilt') {
+    const rows = await io.remoteJson(`${QUILT_META}/${encodeURIComponent(minecraft)}`, signal);
+    if (!Array.isArray(rows)) throw new Error('Quilt returned an invalid loader catalog.');
+    return rows.map(row => ({ version: row.loader.version, stable: !/alpha|beta|rc/i.test(row.loader.version) }));
+  }
+  if (loader === 'liteloader') {
+    const catalog = await io.remoteJson(LITELOADER_META, signal);
+    return liteLoaderBuilds(catalog, minecraft).map(build => ({ version: build.version, stable: build.stable }));
+  }
   const xml = await io.remoteText(MAVEN[loader] + 'maven-metadata.xml', signal);
   const result = [...xml.matchAll(/<version>([^<]+)<\/version>/g)].map(m => m[1])
     .filter(v => loader === 'forge' ? v.startsWith(minecraft + '-') : compatibleNeo(v, minecraft));
   return [...new Set(result)].sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
     .map(version => ({ version, stable: !/alpha|beta|rc/i.test(version) }));
+}
+function liteLoaderBuilds(catalog, minecraft) {
+  const value = catalog?.versions?.[minecraft], builds = [];
+  for (const [sectionName, stable] of [['artefacts', true], ['snapshots', false]]) {
+    const section = value?.[sectionName]?.['com.mumfrey:liteloader'];
+    if (!section?.latest) continue;
+    const entry = section.latest, version = String(entry.build || entry.version || '');
+    if (!version || !entry.version || !/^[a-f0-9]{32}$/i.test(entry.md5 || '')) continue;
+    builds.push({ version, stable: stable && entry.stream === 'RELEASE', entry, libraries: [...(value[sectionName].libraries || []), ...(entry.libraries || [])] });
+  }
+  return [...new Map(builds.map(build => [build.version, build])).values()];
+}
+function liteLoaderMetadata(profile, catalog) {
+  const build = liteLoaderBuilds(catalog, profile.version).find(item => item.version === profile.loaderVersion);
+  if (!build) throw new Error(`LiteLoader ${profile.loaderVersion} is not available for Minecraft ${profile.version}.`);
+  const libraries = [...new Map(build.libraries.map(library => [library.name, { ...library }])).values()];
+  const timestamp = Number(build.entry.timestamp), buildNumber = Number(build.entry.lastSuccessfulBuild);
+  if (!Number.isInteger(timestamp) || !Number.isInteger(buildNumber) || buildNumber < 1) throw new Error('LiteLoader returned invalid snapshot metadata.');
+  const stamp = new Date(timestamp * 1000).toISOString().replace(/[-:]/g, '').replace('T', '.').slice(0, 15);
+  const resolvedVersion = build.entry.version.replace(/SNAPSHOT$/, `${stamp}-${buildNumber}`);
+  const name = `com.mumfrey:liteloader:${build.entry.version}`;
+  libraries.push({ name, downloads: { artifact: { path: mavenPath(name), url: `${LITELOADER_MAVEN}com/mumfrey/liteloader/${build.entry.version}/liteloader-${resolvedVersion}-release.jar`, md5: build.entry.md5.toLowerCase() } } });
+  for (const library of libraries) {
+    if (library.name === 'org.ow2.asm:asm-all:5.2') library.url = 'https://repo.liteloader.com/';
+    if (library.name === 'org.spongepowered:mixin:0.7.4-SNAPSHOT') library.downloads = { artifact: {
+      path: mavenPath(library.name),
+      url: 'https://repo.spongepowered.org/maven/org/spongepowered/mixin/0.7.4-SNAPSHOT/mixin-0.7.4-20171010.121826-8.jar',
+      sha1: 'd22c5b223b3ff950cd165446dbc88afb162a8b6e'
+    } };
+  }
+  return { id: `liteloader-${build.entry.version}`, inheritsFrom: profile.version, type: build.stable ? 'release' : 'snapshot', mainClass: 'net.minecraft.launchwrapper.Launch', arguments: { jvm: [], game: ['--tweakClass', build.entry.tweakClass || 'com.mumfrey.liteloader.launch.LiteLoaderTweaker'] }, libraries };
 }
 function mergeMetadata(base, child, id) {
   if (child.inheritsFrom !== base.id) throw new Error('The loader does not match this Minecraft version.');
@@ -87,7 +130,9 @@ async function normalizeLibraries(meta, root, io, signal, downloadMissing) {
       if (downloadMissing) {
         const url = new URL(relative, lib.url || 'https://libraries.minecraft.net/').href;
         io.trustedUrl(url);
-        artifact = { path: relative, url, sha1: lib.sha1 || await checksum(url, io, signal) };
+        artifact = { path: relative, url };
+        if (/^[a-f0-9]{32}$/i.test(lib.md5 || '')) artifact.md5 = lib.md5.toLowerCase();
+        else artifact.sha1 = lib.sha1 || await checksum(url, io, signal);
         if (lib.size != null) artifact.size = lib.size;
         await io.download(artifact, dest, signal);
       } else {
@@ -111,6 +156,10 @@ async function install(profile, root, base, javaPath, io, signal, progress) {
   let child;
   if (loader === 'fabric') {
     child = await io.remoteJson(`https://meta.fabricmc.net/v2/versions/loader/${encodeURIComponent(profile.version)}/${encodeURIComponent(loaderVersion)}/profile/json`, signal);
+  } else if (loader === 'quilt') {
+    child = await io.remoteJson(`${QUILT_META}/${encodeURIComponent(profile.version)}/${encodeURIComponent(loaderVersion)}/profile/json`, signal);
+  } else if (loader === 'liteloader') {
+    child = liteLoaderMetadata(profile, await io.remoteJson(LITELOADER_META, signal));
   } else {
     const url = `${MAVEN[loader]}${encodeURIComponent(loaderVersion)}/${loader}-${encodeURIComponent(loaderVersion)}-installer.jar`;
     const installer = path.join(root, 'loader-installers', `${loader}-${crypto.createHash('sha256').update(loaderVersion).digest('hex').slice(0, 16)}.jar`);
@@ -135,7 +184,7 @@ async function install(profile, root, base, javaPath, io, signal, progress) {
   }
   const merged = mergeMetadata(base, child, id);
   progress(`Checking ${loader} libraries`);
-  await normalizeLibraries(merged, root, io, signal, loader === 'fabric');
+  await normalizeLibraries(merged, root, io, signal, ['fabric', 'quilt', 'liteloader'].includes(loader));
   signal?.throwIfAborted();
   const dir = path.join(root, 'versions', id);
   await io.atomicJson(path.join(dir, `${id}.json`), merged);
@@ -143,4 +192,4 @@ async function install(profile, root, base, javaPath, io, signal, progress) {
   await fs.mkdir(path.join(root, 'instances', profile.id, 'mods'), { recursive: true });
   progress(`${loader} ${loaderVersion} is ready`, 1, 1);
 }
-module.exports = { TYPES, loaderSettings, profileVersionId, mavenPath, compatibleNeo, versions, mergeMetadata, normalizeLibraries, install };
+module.exports = { TYPES, QUILT_META, LITELOADER_META, LITELOADER_MAVEN, loaderSettings, profileVersionId, mavenPath, compatibleNeo, liteLoaderBuilds, liteLoaderMetadata, versions, mergeMetadata, normalizeLibraries, install };

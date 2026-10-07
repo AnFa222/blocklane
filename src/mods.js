@@ -10,8 +10,8 @@ function modId(value, label = 'mod') {
 
 function profileLoader(profile) {
   const loader = profile?.loader || 'vanilla';
-  if (loader === 'vanilla') throw new Error('Choose a Fabric, Forge, or NeoForge profile to manage mods.');
-  if (!['fabric', 'forge', 'neoforge'].includes(loader)) throw new Error('This profile uses an unsupported mod loader.');
+  if (loader === 'vanilla') throw new Error('Choose a modded profile to manage mods.');
+  if (!['fabric', 'quilt', 'forge', 'neoforge', 'liteloader'].includes(loader)) throw new Error('This profile uses an unsupported mod loader.');
   return loader;
 }
 

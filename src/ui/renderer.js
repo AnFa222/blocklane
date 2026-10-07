@@ -15,7 +15,7 @@ let resourcepackState = null, resourcepackSearchState = { query: '', offset: 0, 
 const contentDownloads = new Map();
 let pendingDependencyInstall = null;
 const dependencyInstallQueue = [];
-const loaderNames = { vanilla: 'Vanilla', fabric: 'Fabric', forge: 'Forge', neoforge: 'NeoForge' };
+const loaderNames = { vanilla: 'Vanilla', fabric: 'Fabric', quilt: 'Quilt', forge: 'Forge', neoforge: 'NeoForge', liteloader: 'LiteLoader' };
 
 function el(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text != null) node.textContent = text; return node; }
 function button(text, className, action) { const node = el('button', className, text); node.addEventListener('click', () => guard(action)); return node; }
@@ -27,7 +27,7 @@ function installed(id) { return state.installed.find(v => v.id === id); }
 function currentProfile() { return state.profiles.find(p => p.id === state.selectedProfile); }
 function profileInstalled(p) { return p && installed(p.version) && ((p.loader || 'vanilla') === 'vanilla' || state.installed.some(v => v.baseVersion === p.version && v.loader === p.loader && v.loaderVersion === p.loaderVersion)); }
 function profileLabel(p) { return `${loaderNames[p.loader || 'vanilla']} ${p.version}${p.loaderVersion ? ' · ' + p.loaderVersion : ''}`; }
-function supported(v) { return ['release', 'snapshot'].includes(v.type) && v.releaseTime >= '2018-07-18'; }
+function supported(v) { return ['release', 'snapshot'].includes(v.type) && (v.id === '1.12.2' || v.releaseTime >= '2018-07-18'); }
 
 function render() {
   $('#nav-installed').textContent = state.installed.length;
@@ -220,7 +220,7 @@ async function loadSkins() {
   for (const account of accounts) { const option = el('option', '', `${account.name} · ${account.type === 'local' ? 'Local' : 'Microsoft'}`); option.value = account.id; picker.append(option); }
   skinAccountId = accounts.some(account => account.id === prior) ? prior : accounts[0]?.id || null; picker.value = skinAccountId || ''; picker.disabled = !accounts.length;
   const selectedAccount = accounts.find(account => account.id === skinAccountId);
-  $('#skins-notice').textContent = !accounts.length ? 'Add a Microsoft account or local profile before applying a skin. You can still build your library now.' : selectedAccount?.type === 'local' ? 'Local skins appear in Fabric, Forge, and NeoForge profiles. Blocklane installs the required client-side skin support automatically when you launch.' : 'Applying a skin uploads it to this Microsoft account through Minecraft Services. Restart Minecraft after changing it.';
+  $('#skins-notice').textContent = !accounts.length ? 'Add a Microsoft account or local profile before applying a skin. You can still build your library now.' : selectedAccount?.type === 'local' ? 'Local skins appear in compatible modded profiles. Blocklane installs the required client-side skin support automatically when you launch.' : 'Applying a skin uploads it to this Microsoft account through Minecraft Services. Restart Minecraft after changing it.';
   const summary = $('#active-skin-summary'); summary.replaceChildren(el('span', 'muted', skinAccountId ? 'Loading active skin…' : 'No playable account selected.'));
   const libraryPromise = api.listSkins();
   let active = null, activeError = null;
@@ -261,7 +261,7 @@ async function loadCatalog(refresh = false) {
   try {
     catalog = await api.catalog(refresh);
     $('#latest-version').textContent = catalog.latest.release;
-    $('#catalog-note').textContent = `${catalog.versions.length} official versions · Vanilla 1.13+ supported · ${catalog.cached ? 'Offline catalog — connect to install' : 'Source: Mojang'} `;
+    $('#catalog-note').textContent = `${catalog.versions.length} official versions · Minecraft 1.12.2 and 1.13+ supported · ${catalog.cached ? 'Offline catalog — connect to install' : 'Source: Mojang'} `;
     $('#connection-label').textContent = catalog.cached ? 'Cached version catalog' : 'Mojang catalog connected';
     render();
   } catch (error) { $('#connection-label').textContent = 'Catalog connection unavailable'; $('#catalog-note').textContent = error.message; throw error; }
@@ -300,7 +300,7 @@ async function loadLoaderVersions(selectedVersion) {
     if (request !== loaderRequest) return;
     for (const v of versions) { const option = el('option', '', v.version + (v.stable ? '' : ' · preview')); option.value = v.version; select.append(option); }
     select.value = versions.some(v => v.version === selectedVersion) ? selectedVersion : (versions.find(v => v.stable) || versions[0])?.version || '';
-    $('#loader-note').textContent = versions.length ? `${loaderNames[loader]} builds for Minecraft ${minecraft}. Add compatible mods to this profile’s mods folder.${loader === 'fabric' ? ' Some mods also need Fabric API.' : ''}` : `No ${loaderNames[loader]} builds are available for Minecraft ${minecraft}. Choose another game version or loader.`;
+    $('#loader-note').textContent = versions.length ? `${loaderNames[loader]} builds for Minecraft ${minecraft}. Add compatible mods to this profile’s mods folder.${loader === 'fabric' ? ' Some mods also need Fabric API.' : loader === 'quilt' ? ' Some mods also need Quilted Fabric API.' : loader === 'liteloader' ? ' LiteLoader is legacy and its 1.12.2 build is a preview.' : ''}` : `No ${loaderNames[loader]} builds are available for Minecraft ${minecraft}. Choose another game version or loader.`;
   } catch (error) { if (request === loaderRequest) $('#loader-note').textContent = error.message; }
   finally { if (request === loaderRequest) { loaderLoading = false; $('#save-profile').disabled = !select.value; } }
 }

@@ -44,7 +44,11 @@ test('search is constrained to mod type, profile loader and Minecraft version', 
   const facets = JSON.parse(request.searchParams.get('facets'));
   assert.deepEqual(facets, [['project_type:mod'], ['categories:fabric'], ['versions:1.21.1']]);
   assert.equal(request.hostname, 'api.modrinth.com');
-  await assert.rejects(mods.search({ ...profile, loader: 'vanilla' }, '', 0, io), /Fabric, Forge, or NeoForge/);
+  await assert.rejects(mods.search({ ...profile, loader: 'vanilla' }, '', 0, io), /modded profile/);
+  await mods.search({ ...profile, loader: 'quilt' }, '', 0, io);
+  assert.deepEqual(JSON.parse(request.searchParams.get('facets')), [['project_type:mod'], ['categories:quilt'], ['versions:1.21.1']]);
+  await mods.search({ ...profile, version: '1.12.2', loader: 'liteloader' }, '', 0, io);
+  assert.deepEqual(JSON.parse(request.searchParams.get('facets')), [['project_type:mod'], ['categories:liteloader'], ['versions:1.12.2']]);
 });
 
 test('install verifies files, adds required dependencies, toggles, and removes orphan dependencies', async t => {

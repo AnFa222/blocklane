@@ -6,7 +6,7 @@ const mods = require('./mods');
 // Iris shader packs also work through Oculus.  Modrinth classifies these packs
 // with the Iris compatibility tag, rather than the Minecraft mod-loader tag.
 function adapter(profile, modList) {
-  if (!['fabric', 'forge', 'neoforge'].includes(profile?.loader)) return null;
+  if (!['fabric', 'quilt', 'forge', 'neoforge'].includes(profile?.loader)) return null;
   const names = [...(modList?.installed || []), ...(modList?.local || [])]
     .map(item => `${item.slug || ''} ${item.title || ''} ${item.filename || ''}`.toLowerCase());
   const has = name => names.some(value => new RegExp(`(^|[^a-z])${name}([^a-z]|$)`).test(value));

@@ -9,9 +9,10 @@ const { Readable } = require('node:stream');
 const network = require('../src/network');
 const mods = require('../src/mods');
 function fakeResponse(bytes, options = {}) { const stream = Readable.from([bytes]); stream.statusCode = options.status || 200; stream.headers = {}; return stream; }
-const { Launcher, allowed, expandArgs, safePath, validateProfile, libraryPlan, download, pool, extractNatives } = require('../src/core');
+const { Launcher, allowed, expandArgs, safePath, validateProfile, libraryPlan, legacyArguments, normalizeVersionMetadata, download, pool, extractNatives } = require('../src/core');
 const windows = { name: 'windows', arch: 'x86_64', version: '10.0.22631' };
 const digest = data => crypto.createHash('sha1').update(data).digest('hex');
+const md5 = data => crypto.createHash('md5').update(data).digest('hex');
 async function temp(t) { const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'blocklane-test-')); t.after(() => fs.rm(dir, { recursive: true, force: true })); return dir; }
 
 test('ordered Mojang OS rules and feature flags', () => {
@@ -29,6 +30,14 @@ test('arguments preserve paths with spaces as one argument and include demo only
   assert.deepEqual(expandArgs(args, { classpath: 'C:\\My Games\\client.jar' }, { is_demo_user: true }), ['-cp', 'C:\\My Games\\client.jar', '--demo']);
   assert.equal(expandArgs(args, { classpath: 'a' }, {}).includes('--demo'), false);
   assert.throws(() => expandArgs(['${unknown}'], {}, {}), /Unsupported/);
+});
+
+test('legacy Minecraft arguments are normalized for Java 8 launch metadata', () => {
+  assert.deepEqual(legacyArguments('--username ${auth_player_name} --gameDir "${game_directory}"'), ['--username', '${auth_player_name}', '--gameDir', '${game_directory}']);
+  const metadata = normalizeVersionMetadata({ id: '1.12.2', minecraftArguments: '--username ${auth_player_name} --version "${version_name}"', downloads: { client: { url: 'https://piston-data.mojang.com/client' } }, libraries: [] });
+  assert.equal(metadata.javaVersion.majorVersion, 8);
+  assert.deepEqual(metadata.arguments.game, ['--username', '${auth_player_name}', '--version', '${version_name}']);
+  assert.ok(metadata.arguments.jvm.includes('${classpath}'));
 });
 
 test('download paths reject traversal, Windows drive paths, and alternate separators', () => {
@@ -65,6 +74,14 @@ test('downloads skip verified files, repair corruption, and never promote bad by
   await fs.writeFile(dest, 'broken'); await download(item, dest); assert.equal(calls, 2);
   await assert.rejects(download({ ...item, sha1: '0'.repeat(40) }, path.join(root, 'bad')), /integrity/);
   assert.deepEqual((await fs.readdir(root)).sort(), ['asset']);
+});
+
+test('downloads accept LiteLoader MD5 checksums and reject mismatches', async t => {
+  const root = await temp(t), bytes = Buffer.from('legacy loader'), destination = path.join(root, 'liteloader.jar');
+  t.mock.method(network, 'open', async () => fakeResponse(bytes));
+  await download({ md5: md5(bytes), size: bytes.length, url: 'https://dl.liteloader.com/versions/test.jar' }, destination);
+  assert.deepEqual(await fs.readFile(destination), bytes);
+  await assert.rejects(download({ md5: '0'.repeat(32), url: 'https://dl.liteloader.com/versions/bad.jar' }, path.join(root, 'bad.jar')), /integrity/);
 });
 
 test('download cancellation leaves no partial final file', async t => {

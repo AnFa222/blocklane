@@ -13,6 +13,8 @@ test('legacy profiles stay vanilla; loaders require a pinned valid version', () 
   assert.throws(() => loaders.loaderSettings({ loader: 'forge', loaderVersion: '../bad' }));
   assert.throws(() => loaders.loaderSettings({ loader: 'unknown' }));
   const a = { ...p, loader: 'fabric', loaderVersion: '0.16.10' };
+  assert.deepEqual(loaders.loaderSettings({ ...p, loader: 'quilt', loaderVersion: '0.28.1' }), { loader: 'quilt', loaderVersion: '0.28.1' });
+  assert.deepEqual(loaders.loaderSettings({ ...p, loader: 'liteloader', loaderVersion: '1.12.2-SNAPSHOT-r4CC2BB0-b4-4' }), { loader: 'liteloader', loaderVersion: '1.12.2-SNAPSHOT-r4CC2BB0-b4-4' });
   assert.notEqual(loaders.profileVersionId(a), loaders.profileVersionId({ ...a, loaderVersion: '0.16.11' }));
   assert.notEqual(loaders.profileVersionId(a), loaders.profileVersionId({ ...a, loader: 'forge' }));
 });
@@ -43,6 +45,26 @@ test('unsupported Fabric game versions do not offer unrelated builds', async () 
   let calls = 0;
   assert.deepEqual(await loaders.versions('fabric', '1.13', { remoteJson: async () => { calls++; return [{ version: '1.21.1' }]; } }), []);
   assert.equal(calls, 1);
+});
+test('Quilt catalogs expose builds for the selected Minecraft version', async () => {
+  let requested;
+  const result = await loaders.versions('quilt', '1.21.1', { remoteJson: async url => { requested = url; return [{ loader: { version: '0.28.1' } }, { loader: { version: '0.29.0-beta.1' } }]; } });
+  assert.equal(requested, `${loaders.QUILT_META}/1.21.1`);
+  assert.deepEqual(result, [{ version: '0.28.1', stable: true }, { version: '0.29.0-beta.1', stable: false }]);
+});
+test('LiteLoader manifest produces legacy launch metadata with an official MD5', () => {
+  const catalog = { versions: { '1.12.2': { snapshots: { libraries: [{ name: 'net.minecraft:launchwrapper:1.12' }, { name: 'org.spongepowered:mixin:0.7.4-SNAPSHOT', url: 'https://repo.spongepowered.org/maven/' }], 'com.mumfrey:liteloader': { latest: { version: '1.12.2-SNAPSHOT', build: '1.12.2-SNAPSHOT-r4CC2BB0-b4-4', md5: '1420785ecbfed5aff4a586c5c9dd97eb', timestamp: '1511880271', lastSuccessfulBuild: 4, tweakClass: 'com.mumfrey.liteloader.launch.LiteLoaderTweaker', libraries: [{ name: 'org.ow2.asm:asm-all:5.2' }] } } } } } };
+  const builds = loaders.liteLoaderBuilds(catalog, '1.12.2');
+  assert.deepEqual(builds.map(build => build.version), ['1.12.2-SNAPSHOT-r4CC2BB0-b4-4']);
+  const metadata = loaders.liteLoaderMetadata({ version: '1.12.2', loaderVersion: builds[0].version }, catalog);
+  assert.equal(metadata.inheritsFrom, '1.12.2');
+  assert.equal(metadata.mainClass, 'net.minecraft.launchwrapper.Launch');
+  assert.deepEqual(metadata.arguments.game, ['--tweakClass', 'com.mumfrey.liteloader.launch.LiteLoaderTweaker']);
+  const artifact = metadata.libraries.find(library => library.name === 'com.mumfrey:liteloader:1.12.2-SNAPSHOT');
+  assert.equal(artifact.downloads.artifact.md5, '1420785ecbfed5aff4a586c5c9dd97eb');
+  assert.equal(artifact.downloads.artifact.url, 'https://repo.mumfrey.com/content/repositories/snapshots/com/mumfrey/liteloader/1.12.2-SNAPSHOT/liteloader-1.12.2-20171128.144431-4-release.jar');
+  assert.equal(metadata.libraries.find(library => library.name === 'org.ow2.asm:asm-all:5.2').url, 'https://repo.liteloader.com/');
+  assert.equal(metadata.libraries.find(library => library.name === 'org.spongepowered:mixin:0.7.4-SNAPSHOT').downloads.artifact.sha1, 'd22c5b223b3ff950cd165446dbc88afb162a8b6e');
 });
 test('Fabric libraries require official checksums and reject unrelated repositories', async t => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'blocklane-loaders-')); t.after(() => fs.rm(root, { recursive: true, force: true }));
