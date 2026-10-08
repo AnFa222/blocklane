@@ -8,6 +8,7 @@ const { Accounts } = require('./auth');
 const appConfig = require('./app-config.json');
 const updater = require('./updater');
 
+if (process.platform === 'win32') app.setAppUserModelId('com.blocklane.launcher');
 const smoke = process.argv.includes('--smoke-test');
 const dataOverride = process.env.BLOCKLANE_DATA_DIR;
 if (dataOverride) app.setPath('userData', path.resolve(dataOverride));

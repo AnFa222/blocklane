@@ -1,6 +1,6 @@
 {
   "name": "blocklane",
-  "version": "0.4.48",
+  "version": "0.4.49",
   "description": "A focused Minecraft Java Edition launcher and version manager",
   "main": "src/main.js",
   "author": "",
@@ -29,6 +29,7 @@
     "directories": {
       "output": "dist/nsis"
     },
+    "afterPack": "scripts/after-pack.js",
     "files": [
       "src/**/*",
       "assets/**/*",
