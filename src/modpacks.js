@@ -59,6 +59,72 @@ function profileSpec(index) {
   if (dependency && !/^[a-zA-Z0-9][a-zA-Z0-9._+-]{0,100}$/.test(loaderVersion)) throw new Error('The modpack specifies an invalid loader version.');
   return { name: cleanText(index.name, 50), version: String(dependencies.minecraft), loader, loaderVersion, memory: 4, javaPath: 'auto', javaArgs: [], gameArgs: [] };
 }
+function prismIndex(value, fallbackName = 'Imported instance') {
+  if (!value || !Array.isArray(value.components)) throw new Error('This is not a valid Prism Launcher or MultiMC instance.');
+  const component = uid => value.components.find(item => item?.uid === uid && typeof item.version === 'string');
+  const minecraft = component('net.minecraft');
+  if (!minecraft) throw new Error('The instance does not specify a Minecraft version.');
+  const choices = [
+    ['net.fabricmc.fabric-loader', 'fabric-loader'], ['org.quiltmc.quilt-loader', 'quilt-loader'],
+    ['net.minecraftforge', 'forge'], ['net.neoforged', 'neoforge']
+  ].map(([uid, key]) => [component(uid), key]).filter(([item]) => item);
+  if (choices.length > 1) throw new Error('The instance requests more than one mod loader.');
+  const dependencies = { minecraft: minecraft.version };
+  if (choices[0]) dependencies[choices[0][1]] = choices[0][0].version;
+  return validateIndex({ formatVersion: 1, game: 'minecraft', versionId: 'local', name: cleanText(fallbackName, 100) || 'Imported instance', summary: '', files: [], dependencies });
+}
+function curseForgeIndex(value) {
+  if (!value || value.manifestType !== 'minecraftModpack' || Number(value.manifestVersion) !== 1 || typeof value.minecraft?.version !== 'string') throw new Error('This is not a valid CurseForge modpack.');
+  if (Array.isArray(value.files) && value.files.length) throw new Error('This CurseForge export references files that are not included in the ZIP. Import an exported instance containing the mod files, or use a Modrinth/Prism pack.');
+  const loaders = Array.isArray(value.minecraft.modLoaders) ? value.minecraft.modLoaders : [], selected = loaders.find(item => item?.primary) || loaders[0];
+  const dependencies = { minecraft: value.minecraft.version };
+  if (selected?.id) {
+    const match = /^(fabric|quilt|forge|neoforge)-(.+)$/.exec(String(selected.id));
+    if (!match) throw new Error(`Unsupported CurseForge loader: ${selected.id}`);
+    dependencies[match[1] === 'fabric' ? 'fabric-loader' : match[1] === 'quilt' ? 'quilt-loader' : match[1]] = match[2];
+  }
+  return validateIndex({ formatVersion: 1, game: 'minecraft', versionId: cleanText(value.version, 50) || 'local', name: cleanText(value.name, 100) || 'Imported CurseForge pack', summary: cleanText(value.author, 250), files: [], dependencies });
+}
+async function inspectZip(file, signal) {
+  const zip = await yauzl.openPromise(file, { lazyEntries: true, strictFileNames: true }); const found = [];
+  try {
+    for await (const entry of zip.eachEntry()) {
+      signal?.throwIfAborted(); if (entry.fileName.endsWith('/')) continue;
+      const match = /^(.*?)(modrinth\.index\.json|mmc-pack\.json|manifest\.json)$/.exec(entry.fileName);
+      if (!match || entry.uncompressedSize > 8 * 1024 * 1024) continue;
+      const chunks = []; for await (const chunk of await zip.openReadStreamPromise(entry)) chunks.push(chunk);
+      let value; try { value = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { continue; }
+      if (match[2] === 'modrinth.index.json' && value?.game === 'minecraft') found.push({ format: 'modrinth', prefix: match[1], value });
+      if (match[2] === 'mmc-pack.json' && Array.isArray(value?.components)) found.push({ format: 'prism', prefix: match[1], value });
+      if (match[2] === 'manifest.json' && value?.manifestType === 'minecraftModpack') found.push({ format: 'curseforge', prefix: match[1], value });
+    }
+  } finally { zip.close(); }
+  if (found.length !== 1) throw new Error(found.length ? 'The archive contains multiple modpack manifests.' : 'The ZIP is not a supported Modrinth, Prism, MultiMC, or CurseForge modpack.');
+  return found[0];
+}
+async function extractPortableArchive(file, staging, descriptor, signal) {
+  const zip = await yauzl.openPromise(file, { lazyEntries: true, strictFileNames: true }); let expanded = 0; const managed = [], names = new Set();
+  const overrideRoot = descriptor.format === 'curseforge' ? safePackPath(cleanText(descriptor.value.overrides, 200) || 'overrides') : '';
+  const roots = descriptor.format === 'prism' ? [`${descriptor.prefix}.minecraft/`, `${descriptor.prefix}minecraft/`] : [`${descriptor.prefix}${overrideRoot}/`];
+  try {
+    for await (const entry of zip.eachEntry()) {
+      signal?.throwIfAborted();
+      if (entry.fileName.includes('\\') || entry.fileName.startsWith('/') || entry.fileName.includes('\0')) throw new Error('The modpack archive contains an unsafe path.');
+      const mode = (entry.externalFileAttributes >>> 16) & 0xf000;
+      if (mode && mode !== 0x8000 && mode !== 0x4000) throw new Error('The modpack archive contains a link or special file.');
+      if (entry.fileName.endsWith('/')) continue;
+      const root = roots.find(item => entry.fileName.startsWith(item)); if (!root) continue;
+      const relative = safePackPath(entry.fileName.slice(root.length)); if (relative.startsWith('.blocklane/')) continue;
+      expanded += entry.uncompressedSize; if (expanded > 8 * 1024 * 1024 * 1024 || entry.uncompressedSize > 2 * 1024 * 1024 * 1024) throw new Error('The modpack archive is too large.');
+      if (names.has(relative.toLowerCase())) throw new Error('The modpack archive contains duplicate paths.'); names.add(relative.toLowerCase());
+      const destination = path.join(staging, ...relative.split('/')); await fs.mkdir(path.dirname(destination), { recursive: true });
+      await pipeline(await zip.openReadStreamPromise(entry), createWriteStream(destination), { signal }); managed.push(relative);
+    }
+  } finally { zip.close(); }
+  if (!managed.length) throw new Error('The modpack archive does not contain any instance files.');
+  const fallback = path.basename(file, path.extname(file));
+  return { index: descriptor.format === 'prism' ? prismIndex(descriptor.value, fallback) : curseForgeIndex(descriptor.value), managed, format: descriptor.format };
+}
 async function extractArchive(file, staging, signal) {
   const zip = await yauzl.openPromise(file, { lazyEntries: true, strictFileNames: true }); let index = null, expanded = 0; const managed = [], names = new Set();
   try {
@@ -87,7 +153,9 @@ async function extractArchive(file, staging, signal) {
 }
 async function stagePack(archive, staging, io, signal, progress = () => {}) {
   await fs.rm(staging, { recursive: true, force: true }); await fs.mkdir(staging, { recursive: true });
-  const result = await extractArchive(archive, staging, signal), files = result.index.files.filter(file => file.env?.client !== 'unsupported');
+  const descriptor = await inspectZip(archive, signal);
+  const result = descriptor.format === 'modrinth' ? await extractArchive(archive, staging, signal) : await extractPortableArchive(archive, staging, descriptor, signal);
+  const files = result.index.files.filter(file => file.env?.client !== 'unsupported');
   const total = files.reduce((sum, file) => sum + file.fileSize, 0); let completed = 0;
   await io.pool(files, async file => {
     const relative = safePackPath(file.path), destination = path.join(staging, ...relative.split('/')), url = file.downloads.find(value => { try { return io.trustedUrl(value); } catch { return false; } });
@@ -120,4 +188,4 @@ async function applyStaging(instance, staging, oldManaged, newManaged, updating)
 async function readManifest(instance, io) { return io.readJson(path.join(instance, '.blocklane', 'modpack.json'), null); }
 async function writeManifest(instance, value, io) { await io.atomicJson(path.join(instance, '.blocklane', 'modpack.json'), value); }
 
-module.exports = { API, id, api, safePackPath, protectedPath, search, project, versions, packFile, validateIndex, profileSpec, extractArchive, stagePack, applyStaging, readManifest, writeManifest };
+module.exports = { API, id, api, safePackPath, protectedPath, search, project, versions, packFile, validateIndex, profileSpec, prismIndex, curseForgeIndex, inspectZip, extractArchive, extractPortableArchive, stagePack, applyStaging, readManifest, writeManifest };

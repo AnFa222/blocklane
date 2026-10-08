@@ -1,6 +1,7 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, session, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, session, safeStorage, clipboard, Notification } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
+const fsSync = require('node:fs');
 const { pathToFileURL } = require('node:url');
 const { Launcher, inspectJava, validId } = require('./core');
 const { Accounts } = require('./auth');
@@ -11,6 +12,7 @@ const smoke = process.argv.includes('--smoke-test');
 const dataOverride = process.env.BLOCKLANE_DATA_DIR;
 if (dataOverride) app.setPath('userData', path.resolve(dataOverride));
 else if (smoke) app.setPath('userData', path.resolve(__dirname, '..', '.test-data'));
+try { if (JSON.parse(fsSync.readFileSync(path.join(app.getPath('userData'), 'minecraft', 'state.json'), 'utf8')).settings?.hardwareAcceleration === false) app.disableHardwareAcceleration(); } catch {}
 let window, launcher, accounts;
 const page = pathToFileURL(path.join(__dirname, 'ui', 'index.html')).href;
 const singleInstance = app.requestSingleInstanceLock();
@@ -23,6 +25,12 @@ else {
 async function start() {
   launcher = new Launcher(path.join(app.getPath('userData'), 'minecraft'), (event, data) => {
     if (window && !window.isDestroyed()) window.webContents.send(`launcher:${event}`, data);
+    if (window && !window.isDestroyed() && event === 'game-start') {
+      if (launcher.state.settings.launcherVisibility === 'minimize') window.minimize();
+      if (launcher.state.settings.launcherVisibility === 'hide') window.hide();
+    }
+    if (window && !window.isDestroyed() && event === 'game-exit' && launcher.state.settings.launcherVisibility === 'hide') { window.show(); window.focus(); }
+    if (event === 'game-exit' && data?.code !== 0 && launcher.state.settings.notifyCrash && Notification.isSupported()) new Notification({ title: 'Minecraft closed unexpectedly', body: 'Open Blocklane Activity to inspect the game log.', silent: !launcher.state.settings.notificationSound }).show();
   });
   await launcher.init();
   accounts = new Accounts(app.getPath('userData'), safeStorage, { clientId: app.isPackaged ? appConfig.microsoftClientId : process.env.BLOCKLANE_MICROSOFT_CLIENT_ID || appConfig.microsoftClientId });
@@ -36,7 +44,20 @@ async function start() {
     catch (error) { return { ok: false, error: error.message, code: typeof error.code === 'string' ? error.code : null }; }
   });
   handle('state', () => launcher.snapshot());
-  handle('settings:save', settings => launcher.saveSettings(settings));
+  handle('settings:save', async settings => {
+    const state = await launcher.saveSettings(settings);
+    if (process.platform === 'win32' && app.isPackaged) app.setLoginItemSettings({ openAtLogin: state.settings.startWithWindows, args: state.settings.startMinimized ? ['--minimized'] : [] });
+    window.webContents.setZoomFactor(state.settings.uiScale / 100);
+    return state;
+  });
+  handle('storage:summary', () => launcher.storageSummary());
+  handle('storage:details', category => launcher.storageDetails(category));
+  handle('storage:delete-item', (category, key) => launcher.deleteStorageItem(category, key));
+  handle('storage:inspect-orphan', id => launcher.inspectOrphan(id));
+  handle('storage:recover-orphan', (id, name, version) => launcher.recoverOrphan(id, name, version));
+  handle('storage:open-orphan', async id => { const folder = launcher.orphanFolder(id); await fs.access(folder).catch(() => { throw new Error('Orphaned profile data was not found.'); }); const error = await shell.openPath(folder); if (error) throw new Error(error); });
+  handle('storage:clear-cache', () => launcher.clearStorageCache());
+  handle('storage:remove-unused', () => launcher.removeUnusedVersions());
   handle('catalog', refresh => launcher.catalog(Boolean(refresh)));
   handle('install', id => launcher.install(id));
   handle('profile:install', id => launcher.installProfile(id));
@@ -55,7 +76,7 @@ async function start() {
   handle('modpacks:details', projectId => launcher.modpackDetails(projectId));
   handle('modpacks:list', () => launcher.modpackList());
   handle('modpacks:install', projectId => launcher.modpackInstall(projectId));
-  handle('modpacks:import', async () => { const result = await dialog.showOpenDialog(window, { title: 'Import Modrinth modpack', properties: ['openFile'], filters: [{ name: 'Modrinth modpack', extensions: ['mrpack'] }] }); return result.canceled ? null : launcher.modpackImport(result.filePaths[0]); });
+  handle('modpacks:import', async () => { const result = await dialog.showOpenDialog(window, { title: 'Import modpack', properties: ['openFile'], filters: [{ name: 'Supported modpacks', extensions: ['mrpack', 'zip'] }, { name: 'Modrinth modpack', extensions: ['mrpack'] }, { name: 'Prism, MultiMC, or CurseForge', extensions: ['zip'] }] }); return result.canceled ? null : launcher.modpackImport(result.filePaths[0]); });
   handle('modpacks:update', profileId => launcher.modpackUpdate(profileId));
   handle('modpacks:remove', profileId => launcher.modpackRemove(profileId));
   handle('custom-packs:list', () => launcher.customPackList());
@@ -90,6 +111,7 @@ async function start() {
   handle('profile:world-import-folder', async id => { const result = await dialog.showOpenDialog(window, { title: 'Import Minecraft world folder', properties: ['openDirectory', 'multiSelections'] }); return result.canceled ? null : launcher.importWorldFolders(id, result.filePaths); });
   handle('profile:world-import-zip', async id => { const result = await dialog.showOpenDialog(window, { title: 'Import Minecraft world ZIP', properties: ['openFile', 'multiSelections'], filters: [{ name: 'ZIP archives', extensions: ['zip'] }] }); if (result.canceled) return null; const imported = []; for (const file of result.filePaths) imported.push(...(await launcher.importWorldZip(id, file)).imported); return { imported }; });
   handle('profile:backup', (id, name) => launcher.backupProfile(id, name));
+  handle('profile:world-backup', (id, names, name) => launcher.backupWorlds(id, names, name));
   handle('profile:backups', id => launcher.backups(id));
   handle('profile:restore-backup', (id, backupId, worlds) => launcher.restoreBackup(id, backupId, worlds));
   handle('profile:delete-backup', (id, backupId) => launcher.deleteBackup(id, backupId));
@@ -101,11 +123,12 @@ async function start() {
     if (target.canceled || !target.filePath) return { cancelled: true }; await fs.copyFile(source, target.filePath); return { exported: true };
   });
   handle('profile:servers', (id, servers) => launcher.servers(id, servers));
-  handle('launch', id => launcher.launch(id, accounts.list().selected));
-  handle('server:launch', (id, address) => launcher.launchServer(id, accounts.list().selected, address));
+  handle('launch', id => launcher.launch(id, launcher.state.settings.defaultAccount || accounts.list().selected));
+  handle('server:launch', (id, address) => launcher.launchServer(id, launcher.state.settings.defaultAccount || accounts.list().selected, address));
   const idle = () => { if (launcher.working || launcher.child) throw new Error('Wait for the installation or game to finish before changing accounts.'); };
   const notifyAccounts = () => { if (window && !window.isDestroyed()) window.webContents.send('launcher:accounts-changed', accounts.list()); };
   handle('accounts:list', () => accounts.list());
+  handle('clipboard:device-code', code => { if (typeof code !== 'string' || !/^[A-Z0-9-]{4,32}$/.test(code)) throw new Error('No valid Microsoft sign-in code is ready to copy.'); clipboard.writeText(code); return true; });
   handle('accounts:select', id => { idle(); return accounts.select(id); });
   handle('accounts:local', name => { idle(); return accounts.createLocal(name); });
   handle('accounts:remove', id => { idle(); return accounts.remove(id); });
@@ -141,7 +164,7 @@ async function start() {
     return result.response === 1 ? launcher.removeVersion(id) : launcher.snapshot();
   });
   handle('folder:open', async () => { const error = await shell.openPath(launcher.root); if (error) throw new Error(error); });
-  handle('updates:check', () => updater.check());
+  handle('updates:check', () => updater.check(launcher.state.settings.updateChannel));
   handle('updates:open', async url => { const parsed = new URL(String(url)); if (parsed.protocol !== 'https:' || !['github.com', 'objects.githubusercontent.com'].includes(parsed.hostname)) throw new Error('Only GitHub update links can be opened.'); return shell.openExternal(parsed.href); });
   handle('folder:mods', async id => {
     validId(id);
@@ -165,20 +188,19 @@ async function start() {
     const folder = path.join(launcher.root, 'instances', id, 'resourcepacks'); await fs.mkdir(folder, { recursive: true });
     const error = await shell.openPath(folder); if (error) throw new Error(error);
   });
-  window = new BrowserWindow({ width: 1240, height: 850, minWidth: 1000, minHeight: 700, show: !smoke, title: 'Blocklane', backgroundColor: '#101412', autoHideMenuBar: true,
+  window = new BrowserWindow({ width: 1240, height: 850, minWidth: 1000, minHeight: 700, show: !smoke, title: 'Blocklane', icon: path.join(__dirname, '..', 'assets', 'icon.png'), backgroundColor: '#101412', autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true }
   });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
+  if (!smoke && (process.argv.includes('--minimized') || launcher.state.settings.startMinimized)) window.once('ready-to-show', () => window.minimize());
   window.on('close', event => {
-    if (!launcher.working && !launcher.child) return;
+    if (!launcher.state.settings.confirmActiveExit || (!launcher.working && !launcher.child)) return;
     event.preventDefault();
     dialog.showMessageBoxSync(window, { type: 'info', title: 'Operation in progress', message: launcher.child ? 'Close Minecraft before closing the launcher.' : 'Cancel the installation or wait for it to finish before closing the launcher.' });
   });
   await window.loadURL(page);
-  if (!smoke && process.argv.includes('--launch-selected')) {
-    await launcher.launch(launcher.state.selectedProfile, accounts.list().selected);
-  }
+  window.webContents.setZoomFactor(launcher.state.settings.uiScale / 100);
   if (smoke) {
     // Exercise the actual sandboxed renderer and IPC, then save a UI capture.
     const result = await window.webContents.executeJavaScript(`(async () => {

@@ -18,13 +18,38 @@ const contentDownloads = new Map();
 let pendingDependencyInstall = null;
 const dependencyInstallQueue = [];
 const loaderNames = { vanilla: 'Vanilla', fabric: 'Fabric', quilt: 'Quilt', forge: 'Forge', neoforge: 'NeoForge', liteloader: 'LiteLoader' };
+let settingsTab = 'launcher';
+const settingSections = {
+  launcher: { label: 'Launcher', fields: [
+    ['startWithWindows', 'Start with Windows', 'Open Blocklane when you sign in.', 'toggle'], ['startMinimized', 'Start minimized', 'Open in the background at Windows sign-in.', 'toggle'], ['minimizeToTray', 'Minimize to tray', 'Keep Blocklane available from the notification area.', 'toggle'], ['launcherVisibility', 'While Minecraft runs', 'Keep Blocklane open, minimize it, or hide it until the game closes.', 'select', [['keep','Keep open'],['minimize','Minimize'],['hide','Hide until exit']]], ['confirmActiveExit', 'Confirm active exit', 'Prevent accidental closing during a game or download.', 'toggle'], ['rememberPage', 'Remember last page', 'Return to the section you last used.', 'toggle'], ['compactSidebar', 'Compact sidebar', 'Use a narrower navigation layout.', 'toggle'], ['uiScale', 'Interface scale', 'Scale the launcher interface.', 'select', [[80,'80%'],[90,'90%'],[100,'100%'],[110,'110%'],[125,'125%']]], ['theme', 'Theme', 'Choose dark, light, or follow Windows.', 'select', [['dark','Dark'],['light','Light'],['system','System']]], ['reducedMotion', 'Reduced motion', 'Disable nonessential interface animation.', 'toggle'] ] },
+  minecraft: { label: 'Minecraft', fields: [
+    ['defaultMemory','Default memory','Memory selected for new profiles.','select',[[2,'2 GB'],[4,'4 GB'],[6,'6 GB'],[8,'8 GB'],[12,'12 GB'],[16,'16 GB']]], ['defaultJava','Default Java runtime','Use managed Java or a custom executable for new profiles.','text'], ['defaultWidth','Default width','Default game window width for new profiles.','number'], ['defaultHeight','Default height','Default game window height for new profiles.','number'], ['defaultFullscreen','Exclusive fullscreen','Enable fullscreen for new profiles.','toggle'], ['defaultJvmArgs','Default JVM arguments','Extra JVM arguments for new profiles, separated by spaces.','text'], ['defaultGameArgs','Default game arguments','Extra Minecraft arguments for new profiles, separated by spaces.','text'], ['defaultLoader','Default mod loader','Loader selected when creating a profile.','select',[['vanilla','Vanilla'],['fabric','Fabric'],['quilt','Quilt'],['forge','Forge'],['neoforge','NeoForge'],['liteloader','LiteLoader']]], ['selectLastProfile','Select last profile','Keep the most recently played profile selected.','toggle'], ['requireAccountChoice','Require account selection','Ask for an account before every launch.','toggle'] ] },
+  downloads: { label: 'Downloads', fields: [
+    ['downloadConcurrency','Simultaneous downloads','Maximum files downloaded at once.','select',[[1,'1'],[2,'2'],[4,'4'],[6,'6'],[8,'8']]], ['downloadLimitMbps','Speed limit','Maximum download speed in Mbps; zero is unlimited.','number'], ['downloadRetries','Retry count','Attempts after a failed download.','select',[[0,'None'],[1,'1'],[2,'2'],[3,'3'],[5,'5']]], ['downloadTimeout','Timeout','Seconds before an inactive download fails.','number'], ['verifyDownloads','Verify checksums','Validate downloaded files whenever a checksum is available.','toggle'], ['pauseDownloadsWhilePlaying','Pause while playing','Avoid background downloads while Minecraft runs.','toggle'], ['downloadNotifications','Completion notifications','Notify when a long download finishes.','toggle'] ] },
+  updates: { label: 'Updates', fields: [
+    ['autoCheckUpdates','Launcher update checks','Check GitHub when Blocklane starts.','toggle'], ['updateChannel','Update channel','Choose stable, beta, or development builds.','select',[['stable','Stable'],['beta','Beta'],['development','Development']]], ['autoDownloadUpdates','Download launcher updates','Download updates automatically when available.','toggle'], ['checkModUpdates','Check mod updates','Check managed mods for newer compatible releases.','toggle'], ['checkModpackUpdates','Check modpack updates','Check installed managed packs.','toggle'], ['checkLoaderUpdates','Check loader updates','Check Fabric, Quilt, Forge, NeoForge, and LiteLoader.','toggle'], ['updateNotifyOnly','Notify before installing','Require an explicit install action for updates.','toggle'] ] },
+  storage: { label: 'Storage', fields: [
+    ['cacheLimitGb','Download cache limit','Maximum cached download data in GB.','number'], ['autoCleanCache','Clean cache automatically','Remove old cached downloads when the limit is reached.','toggle'], ['removeUnusedLibraries','Remove unused libraries','Delete shared libraries that no installed version requires.','toggle'], ['storageWarningGb','Free-space warning','Warn when the drive has fewer than this many GB available.','number'] ] },
+  backups: { label: 'Backups', fields: [
+    ['backupBeforeLaunch','Before every launch','Create a world backup before starting Minecraft.','toggle'], ['backupBeforeVersionChange','Before version changes','Protect worlds before opening them with another Minecraft version.','toggle'], ['backupBeforeContentUpdate','Before content updates','Back up before mod or modpack changes.','toggle'], ['backupFrequency','Scheduled backups','Choose an automatic backup interval.','select',[['manual','Manual only'],['daily','Daily'],['weekly','Weekly']]], ['backupRetention','Backups to retain','Maximum automatic backups per profile.','number'], ['maxBackupGb','Storage limit','Maximum backup storage in GB.','number'], ['removeOldBackups','Remove oldest automatically','Prune old backups when limits are reached.','toggle'], ['backupScreenshots','Include screenshots','Store screenshots in full-profile backups.','toggle'], ['backupConfigs','Include configuration','Include configuration files.','toggle'], ['backupContent','Include packs and mods','Include mods, shaders, and resource packs.','toggle'], ['compressBackups','Compress backups','Use ZIP archives to reduce disk usage.','toggle'], ['verifyBackups','Verify after creation','Check that a backup can be read after it is written.','toggle'] ] },
+  content: { label: 'Content', fields: [
+    ['autoDependencies','Install required dependencies','Automatically install compatible required dependencies.','toggle'], ['askOptionalDependencies','Ask about optional dependencies','Offer compatible optional dependencies during installation.','toggle'], ['allowMissingDependencies','Allow missing dependencies','Show an Install anyway option when required files are unavailable.','toggle'], ['releaseChannel','Preferred releases','Select stable, beta, or alpha mod versions.','select',[['stable','Stable only'],['beta','Stable + beta'],['alpha','All releases']]], ['autoUpdateMods','Automatic mod updates','Update managed mods when compatible versions exist.','toggle'], ['preserveOldMods','Preserve replaced mods','Keep disabled copies when updating.','toggle'], ['detectIncompatibleMods','Compatibility check','Check installed mods before launch.','toggle'], ['warnDuplicateMods','Duplicate warnings','Warn when multiple files provide the same mod.','toggle'], ['modrinthSort','Modrinth sorting','Default order for discovery results.','select',[['downloads','Downloads'],['relevance','Relevance'],['updated','Recently updated'],['newest','Newest']]] ] },
+  privacy: { label: 'Privacy & logs', fields: [
+    ['loggingEnabled','Game logging','Capture Minecraft output and write latest-launch.log.','toggle'], ['launcherDiagnostics','Launcher diagnostics','Record launcher errors and operations.','toggle'], ['logRetentionDays','Delete logs after','Days to keep diagnostic logs; zero keeps them indefinitely.','number'], ['redactDiagnostics','Redact exported diagnostics','Hide usernames, UUIDs, paths, and account identifiers.','toggle'], ['crashReports','Crash helper','Analyze Minecraft crash reports after unexpected exits.','toggle'], ['networkDiagnostics','Network diagnostics','Record download timing and HTTP status information.','toggle'], ['streamingMode','Streaming mode','Hide account names in the interface.','toggle'] ] },
+  accounts: { label: 'Accounts', fields: [
+    ['defaultAccount','Default account','Account selected for launches unless profile selection is required.','select',[]], ['refreshSessions','Refresh Microsoft sessions','Refresh expiring authentication automatically.','toggle'], ['protectLocalProfiles','Protect local profiles','Require confirmation before deleting local accounts.','toggle'], ['requireAccountChoice','Choose account each launch','Do not silently use the selected account.','toggle'], ['streamingMode','Hide account names','Mask account names while streaming.','toggle'] ] },
+  performance: { label: 'Performance', fields: [
+    ['limitCpuWhilePlaying','Limit launcher CPU','Reduce launcher background work while Minecraft runs.','toggle'], ['pauseCatalogWhilePlaying','Pause catalog requests','Stop background discovery requests while playing.','toggle'], ['hardwareAcceleration','Hardware acceleration','Use GPU acceleration for the launcher interface after restart.','toggle'], ['cacheImages','Cache project images','Keep Modrinth thumbnails for faster browsing.','toggle'], ['imageCacheMb','Image cache size','Maximum thumbnail cache size in MB.','number'], ['reduceMotionWhilePlaying','Reduce motion while playing','Suspend interface animations while Minecraft runs.','toggle'] ] },
+  notifications: { label: 'Notifications', fields: [
+    ['notifyLaunchFailure','Launch failures','Notify when Minecraft cannot start.','toggle'], ['notifyCrash','Minecraft crashes','Notify after an unexpected exit.','toggle'], ['notifyInstall','Completed installs','Notify when game or content installation finishes.','toggle'], ['notifyBackup','Completed backups','Notify when a backup finishes.','toggle'], ['notifyUpdates','Available updates','Notify when launcher or content updates exist.','toggle'], ['notifyIncompatibility','Compatibility warnings','Notify about incompatible content.','toggle'], ['notificationSound','Notification sound','Allow Windows notification sounds.','toggle'], ['quietWhilePlaying','Quiet while playing','Suppress noncritical notifications during Minecraft.','toggle'] ] }
+};
 
 function el(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text != null) node.textContent = text; return node; }
 function button(text, className, action) { const node = el('button', className, text); node.addEventListener('click', () => guard(action)); return node; }
 function toast(message, error = false) { clearTimeout(toastTimer); $('#toast').textContent = message; $('#toast').className = error ? 'error' : ''; $('#toast').hidden = false; toastTimer = setTimeout(() => $('#toast').hidden = true, error ? 12000 : 4500); }
 function log(message) { if (state.settings?.loggingEnabled === false) return; const box = $('#log'); box.textContent = (box.textContent + `\n[${new Date().toLocaleTimeString()}] ${message}`).slice(-80000); box.scrollTop = box.scrollHeight; }
 async function guard(action) { try { return await action(); } catch (e) { toast(e.message, true); log(e.message); } }
-function navigate(view) { $$('.view').forEach(n => n.classList.toggle('active', n.id === `view-${view}`)); $$('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view)); $('#page-title').textContent = view[0].toUpperCase() + view.slice(1); if (view === 'mods') guard(loadModsView); if (view === 'modpacks') guard(loadModpacks); if (view === 'backups') guard(loadBackups); if (view === 'screenshots') guard(loadScreenshots); if (view === 'skins') guard(loadSkins); }
+function navigate(view) { $$('.view').forEach(n => n.classList.toggle('active', n.id === `view-${view}`)); $$('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view)); $('#page-title').textContent = view[0].toUpperCase() + view.slice(1); if (state.settings?.rememberPage) localStorage.setItem('blocklane:last-page', view); if (view === 'mods') guard(loadModsView); if (view === 'modpacks') guard(loadModpacks); if (view === 'backups') guard(loadBackups); if (view === 'screenshots') guard(loadScreenshots); if (view === 'skins') guard(loadSkins); if (view === 'settings') renderSettings(); }
 function installed(id) { return state.installed.find(v => v.id === id); }
 function currentProfile() { return state.profiles.find(p => p.id === state.selectedProfile); }
 function profileInstalled(p) { return p && installed(p.version) && ((p.loader || 'vanilla') === 'vanilla' || state.installed.some(v => v.baseVersion === p.version && v.loader === p.loader && v.loaderVersion === p.loaderVersion)); }
@@ -33,7 +58,7 @@ function supported(v) { return ['release', 'snapshot', 'old_beta', 'old_alpha'].
 function versionTypeLabel(type) { return ({ release: 'release', snapshot: 'snapshot', old_beta: 'old beta', old_alpha: 'old alpha' })[type] || type; }
 
 function render() {
-  $('#setting-logging').checked = state.settings?.loggingEnabled !== false;
+  applySettingsAppearance();
   $('#nav-installed').textContent = state.installed.length;
   $('#stat-installed').textContent = state.installed.length;
   $('#stat-profiles').textContent = state.profiles.length;
@@ -59,7 +84,7 @@ function compactDownloads(value) { return value >= 1000000 ? `${(value / 1000000
 function formatBytes(value) { const bytes = Math.max(0, Number(value) || 0); if (bytes < 1024) return `${bytes} B`; const units = ['KB', 'MB', 'GB']; let size = bytes / 1024, unit = 0; while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit++; } return `${size.toFixed(size >= 100 ? 0 : size >= 10 ? 1 : 2)} ${units[unit]}`; }
 function contentKey(kind, profileId, projectId) { return `${kind}:${profileId}:${projectId}`; }
 function downloadIndicator(task) { const box = el('div', `item-download ${task.status || ''}`), line = el('div', 'item-download-head'), label = el('span', '', task.message || 'Preparing download…'), size = el('span', 'item-download-size'); size.textContent = task.totalBytes > 0 ? `${formatBytes(task.doneBytes)} / ${formatBytes(task.totalBytes)}` : task.status === 'failed' ? 'Failed' : 'Calculating size…'; const bar = document.createElement('progress'); if (task.totalBytes > 0) { bar.max = task.totalBytes; bar.value = Math.min(task.doneBytes || 0, task.totalBytes); } line.append(label, size); box.append(line, bar); return box; }
-function profileJvmArguments(memory) { const max = Math.max(1, Number(memory) || 4), initial = Math.min(2, Math.max(1, Math.ceil(max / 2))); return [`-Xms${initial}G`, `-Xmx${max}G`, '-XX:+UseG1GC', '-XX:+ParallelRefProcEnabled', '-XX:+DisableExplicitGC', '-XX:MaxGCPauseMillis=50']; }
+function profileJvmArguments(memory, version = '') { const max = Math.max(1, Number(memory) || 4), initial = Math.min(2, Math.max(1, Math.ceil(max / 2))), heap = [`-Xms${initial}G`, `-Xmx${max}G`]; return /^26\./.test(version) ? [...heap, '-XX:+UseCompactObjectHeaders', '-XX:+AlwaysPreTouch', '-XX:+UseStringDeduplication', '-XX:+UseZGC'] : [...heap, '-XX:+UseG1GC', '-XX:+ParallelRefProcEnabled', '-XX:+DisableExplicitGC', '-XX:MaxGCPauseMillis=50']; }
 function modIcon(url, title) { const fallback = el('span', 'mod-icon-fallback', (title || '?').trim().slice(0, 1).toUpperCase()); try { const parsed = new URL(url || ''); if (parsed.protocol !== 'https:' || !['cdn.modrinth.com', 'api.modrinth.com'].includes(parsed.hostname)) return fallback; const image = document.createElement('img'); image.className = 'mod-icon'; image.loading = 'lazy'; image.alt = ''; image.src = parsed.href; image.addEventListener('error', () => image.replaceWith(fallback), { once: true }); return image; } catch { return fallback; } }
 function markdownUrl(value) { try { const url = new URL(value); if (url.protocol !== 'https:' || url.username || url.password) return ''; return url.href.replace(/&/g, '&amp;').replace(/"/g, '&quot;'); } catch { return ''; } }
 function markdownToHtml(markdown) { let source = String(markdown || '').replace(/<img\b[^>]*\bsrc=["'](https:\/\/[^"']+)["'][^>]*>/gi, (_, url) => `![image](${url})`); let text = source.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); text = text.replace(/!\[([^\]]*)\]\((https:\/\/[^)\s]+)\)/g, (_, alt, url) => { const safe = markdownUrl(url); return safe ? `<img class="mod-body-image" alt="${alt}" src="${safe}">` : alt; }); text = text.replace(/\[([^\]]+)\]\((https:\/\/[^)\s]+)\)/g, (_, label, url) => { const safe = markdownUrl(url); return safe ? `<a href="${safe}" data-external-link="${safe}">${label}</a>` : label; }); text = text.replace(/^###### (.+)$/gm, '<h6>$1</h6>').replace(/^##### (.+)$/gm, '<h5>$1</h5>').replace(/^#### (.+)$/gm, '<h4>$1</h4>').replace(/^### (.+)$/gm, '<h3>$1</h3>').replace(/^## (.+)$/gm, '<h2>$1</h2>').replace(/^# (.+)$/gm, '<h1>$1</h1>').replace(/^[-*] (.+)$/gm, '<li>$1</li>').replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>'); text = text.replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>').replace(/__([^_\n]+)__/g, '<strong>$1</strong>').replace(/\*([^*\n]+)\*/g, '<em>$1</em>').replace(/_([^_\n]+)_/g, '<em>$1</em>'); return text.split(/\n{2,}/).map(block => /^<(h[1-6]|ul)>/.test(block.trim()) ? block : `<p>${block.replace(/\n/g, '<br>')}</p>`).join(''); }
@@ -122,7 +147,7 @@ function renderModpacks() {
   if (!customPacks.length) customList.append(emptyMods('No custom packs yet', 'Use the creation wizard to start a pack project separate from your play profiles.'));
   for (const pack of customPacks) { const card = el('article', 'mod-card'), copy = el('div', 'mod-card-copy'), actions = el('div', 'mod-actions'); copy.append(el('strong', '', pack.name), el('small', '', `${pack.versionId} · Minecraft ${pack.version} · ${loaderNames[pack.loader] || pack.loader}`), el('p', '', pack.summary)); if (pack.loader !== 'vanilla') actions.append(button('Manage mods', 'quiet small', () => guard(() => openCustomPackMods(pack)))); actions.append(button('Open files', 'quiet small', () => guard(() => api.openCustomPackFolder(pack.id))), button('Export .mrpack', 'primary small', () => guard(async () => { const result = await api.exportCustomPack(pack.id); if (result) toast(`${pack.name} exported with ${result.files} files (${formatBytes(result.size)}).`); })), button('Delete', 'quiet small', () => confirmCustomPackDelete(card, pack))); card.append(el('span', 'mod-icon-fallback', pack.name[0].toUpperCase()), copy, actions); customList.append(card); }
   const installedList = $('#installed-modpacks'); installedList.replaceChildren();
-  if (!installedModpacks.length) installedList.append(emptyMods('No modpacks installed', 'Install from Modrinth or import a local .mrpack file.'));
+  if (!installedModpacks.length) installedList.append(emptyMods('No modpacks installed', 'Install from Modrinth or import a local .mrpack or supported ZIP file.'));
   for (const pack of installedModpacks) {
     const card = el('article', 'mod-card'), copy = el('div', 'mod-card-copy'), actions = el('div', 'mod-actions');
     copy.append(el('strong', '', pack.title || pack.profileName), el('small', '', `${pack.versionName || pack.versionNumber || 'Local pack'} · ${loaderNames[pack.loader] || pack.loader} ${pack.version}`));
@@ -141,6 +166,42 @@ function renderModpacks() {
   }
   $('#modpack-result-count').textContent = `${modpackSearchState.total.toLocaleString()} results`; $('#more-modpacks').hidden = modpackSearchState.hits.length >= modpackSearchState.total;
 }
+
+function applySettingsAppearance() {
+  const settings = state.settings || {}; document.documentElement.style.fontSize = `${settings.uiScale || 100}%`;
+  document.body.classList.toggle('compact-sidebar', Boolean(settings.compactSidebar)); document.body.classList.toggle('reduce-motion', Boolean(settings.reducedMotion || (running && settings.reduceMotionWhilePlaying)));
+  document.documentElement.dataset.theme = settings.theme || 'dark';
+}
+function renderSettings() {
+  const tabs = $('#settings-tabs'), panel = $('#settings-panel'); if (!tabs || !panel) return; tabs.replaceChildren(); panel.replaceChildren();
+  for (const [id, section] of Object.entries(settingSections)) { const tab = button(section.label, id === settingsTab ? 'active' : '', () => { settingsTab = id; renderSettings(); }); tab.type = 'button'; tab.setAttribute('role', 'tab'); tab.setAttribute('aria-selected', String(id === settingsTab)); tabs.append(tab); }
+  for (const [key, title, description, type, options] of settingSections[settingsTab].fields) {
+    const card = el('label', 'setting-card'), copy = el('div'); copy.append(el('strong', '', title), el('p', '', description)); let input;
+    if (type === 'select') { input = document.createElement('select'); const choices = key === 'defaultAccount' ? [['','Currently selected'], ...(accountState.accounts || []).map(account => [account.id, account.name])] : options; for (const [value, label] of choices) { const option = el('option', '', label); option.value = value; input.append(option); } input.value = String(state.settings?.[key] ?? ''); }
+    else { input = document.createElement('input'); input.type = type === 'toggle' ? 'checkbox' : type; if (type === 'toggle') input.checked = Boolean(state.settings?.[key]); else input.value = state.settings?.[key] ?? ''; if (type === 'number') { input.min = '0'; input.step = '1'; } }
+    input.dataset.setting = key; input.dataset.settingType = type; card.htmlFor = `setting-${key}-${settingsTab}`; input.id = card.htmlFor; card.append(copy, input); panel.append(card);
+  }
+  if (settingsTab === 'storage') { const manager = el('section', 'storage-manager'); manager.id = 'storage-manager'; manager.append(el('p', 'field-note', 'Calculating storage usage…')); panel.prepend(manager); guard(loadStorageManager); }
+}
+async function loadStorageManager() {
+  if (settingsTab !== 'storage') return; const summary = await api.storageSummary(), manager = $('#storage-manager'); if (!manager) return; manager.replaceChildren();
+  const heading = el('div', 'storage-heading'), title = el('div'); title.append(el('strong', '', 'Storage management'), el('small', '', `${formatBytes(summary.totalBytes)} used inside ${summary.root}`));
+  const actions = el('div', 'storage-actions'); actions.append(button('Refresh', 'quiet small', loadStorageManager), button('Open folder', 'quiet small', () => api.openFolder()), button('Clear cache', 'quiet small', async () => { await api.clearStorageCache(); toast('Temporary downloads and staging files cleared.'); await loadStorageManager(); }), button(`Remove unused versions${summary.unusedVersions.length ? ` (${summary.unusedVersions.length})` : ''}`, 'primary small', async () => { await api.removeUnusedVersions(); state = await api.state(); toast('Unused game versions removed.'); await loadStorageManager(); })); actions.lastChild.disabled = !summary.unusedVersions.length;
+  heading.append(title, actions); manager.append(heading); const grid = el('div', 'storage-grid'); const maximum = Math.max(1, ...summary.categories.map(item => item.bytes));
+  for (const item of summary.categories) { const card = el('button', 'storage-category'), row = el('div', 'storage-category-row'); card.type = 'button'; row.append(el('strong', '', item.label), el('span', '', formatBytes(item.bytes))); const track = el('div', 'storage-track'), fill = el('span'); fill.style.width = `${Math.max(item.bytes ? 2 : 0, item.bytes / maximum * 100)}%`; track.append(fill); card.append(row, track, el('small', '', `${item.files.toLocaleString()} files · View details`)); card.addEventListener('click', () => guard(() => openStorageDetails(item))); grid.append(card); } manager.append(grid);
+}
+let activeStorageCategory = null;
+async function openStorageDetails(category) { activeStorageCategory = category; $('#storage-details-title').textContent = category.label; $('#storage-details-note').textContent = `${formatBytes(category.bytes)} across ${category.files.toLocaleString()} files.`; $('#storage-details-error').textContent = ''; $('#storage-details-dialog').showModal(); await renderStorageDetails(); }
+async function renderStorageDetails() {
+  const list = $('#storage-details-list'); list.replaceChildren(el('p', 'field-note', 'Reading storage entries…')); const entries = await api.storageDetails(activeStorageCategory.id); list.replaceChildren();
+  if (!entries.length) { list.append(emptyMods('Nothing stored here', 'This category is currently empty.')); return; }
+  for (const item of entries) {
+    const row = el('article', 'storage-detail-row'), copy = el('div'); copy.append(el('strong', '', item.name), el('small', '', `${formatBytes(item.bytes)} · ${item.files.toLocaleString()} files · Modified ${new Date(item.modifiedAt).toLocaleString()}`)); if (item.reason) copy.append(el('small', 'storage-item-note', item.reason)); const actions = el('div', 'storage-item-actions');
+    if (item.orphan) actions.append(button('Inspect', 'quiet small', async () => { const details = await api.inspectOrphan(item.key), existing = row.querySelector('.orphan-inspection'); existing?.remove(); const inspection = el('div', 'orphan-inspection'); inspection.append(el('strong', '', `${details.worlds.length} world${details.worlds.length === 1 ? '' : 's'}`)); if (details.worlds.length) inspection.append(el('small', '', details.worlds.map(world => `${world.name}${world.version ? ` · ${world.version}` : ''} · ${formatBytes(world.size)}`).join('\n'))); inspection.append(el('strong', '', 'Largest contents'), el('small', '', details.entries.slice(0, 8).map(entry => `${entry.name} · ${formatBytes(entry.size)}`).join('\n'))); copy.append(inspection); }), button('Recover', 'quiet small', () => openOrphanRecovery(item)), button('Open folder', 'quiet small', () => api.openOrphan(item.key)));
+    const action = el('button', item.protected ? 'quiet small' : 'quiet small danger', item.protected ? 'Protected' : 'Delete'); action.type = 'button'; action.disabled = item.protected; let confirming = false; action.addEventListener('click', () => guard(async () => { if (!confirming) { confirming = true; action.textContent = 'Confirm delete'; action.className = 'primary small'; return; } await api.deleteStorageItem(activeStorageCategory.id, item.key); toast(`${item.name} deleted.`); await renderStorageDetails(); await loadStorageManager(); })); actions.append(action); row.append(copy, actions); list.append(row);
+  }
+}
+function openOrphanRecovery(item) { const select = $('#recover-orphan-version'); select.replaceChildren(); for (const version of catalog.versions) { const option = el('option', '', `${version.id} · ${versionTypeLabel(version.type)}`); option.value = version.id; select.append(option); } select.value = catalog.latest?.release || catalog.versions[0]?.id || ''; $('#recover-orphan-id').value = item.key; $('#recover-orphan-name').value = `Recovered ${item.key.slice(0, 8)}`; $('#recover-orphan-error').textContent = ''; $('#recover-orphan-dialog').showModal(); $('#recover-orphan-name').focus(); }
 async function loadModpacks() { const request = ++modpackRequest; const [installed, projects, discovery] = await Promise.all([api.listModpacks(), api.listCustomPacks(), api.searchModpacks(modpackSearchState.query, modpackSearchState.offset)]); if (request !== modpackRequest) return; installedModpacks = installed; customPacks = projects; modpackSearchState = { query: modpackSearchState.query, offset: discovery.offset, total: discovery.total, hits: discovery.hits }; renderModpacks(); }
 function confirmCustomPackDelete(card, pack) { const actions = card.querySelector('.mod-actions'); actions.replaceChildren(el('small', '', 'Delete this pack project and its files?'), button('Keep', 'quiet small', renderModpacks), button('Delete project', 'primary small', () => guard(async () => { customPacks = await api.deleteCustomPack(pack.id); renderModpacks(); toast('Custom pack deleted.'); }))); }
 function renderCustomPackMods() { const installed = $('#custom-pack-installed-mods'), results = $('#custom-pack-mod-results'); installed.replaceChildren(); results.replaceChildren(); const rows = [...(customPackMods?.installed || []), ...(customPackMods?.local || [])]; if (!rows.length) installed.append(emptyMods('No mods added', 'Search Modrinth or add local JARs through Open files.')); for (const mod of rows) { const card = el('article', 'mod-card'), copy = el('div', 'mod-card-copy'); copy.append(el('strong', '', mod.title || mod.filename), el('small', '', mod.versionNumber || (mod.local ? 'Local file' : 'Installed'))); const remove = button('Remove', 'quiet small', () => guard(async () => { customPackMods = await api.removeCustomPackMod(customPackEditor.id, mod.projectId); renderCustomPackMods(); })); if (mod.local) remove.disabled = true; card.append(modIcon(mod.iconUrl, mod.title), copy, remove); installed.append(card); } for (const hit of customPackModHits) { const card = el('article', 'mod-card result'), copy = el('div', 'mod-card-copy'); copy.append(el('strong', '', hit.title), el('small', '', `by ${hit.author} · ${compactDownloads(hit.downloads)} downloads`), el('p', '', hit.description)); card.append(modIcon(hit.iconUrl, hit.title), copy, button('Add', 'primary small', () => guard(async () => { customPackMods = await api.installCustomPackMod(customPackEditor.id, hit.projectId); renderCustomPackMods(); toast(`${hit.title} added.`); }))); results.append(card); } if (!customPackModHits.length) results.append(emptyMods('Search for mods', 'Results are filtered to this pack’s Minecraft version and loader.')); }
@@ -173,6 +234,7 @@ async function installLibraryItem(meta, action, installAnyway = null) {
   catch (error) {
     const missingDependency = error.code === 'EMISSINGDEPENDENCY' || /^Required dependency .+ has no compatible .+ file for Minecraft .+\.$/i.test(error.message || '');
     if (!missingDependency || !installAnyway) throw error;
+    if (state.settings?.allowMissingDependencies) { const result = await runModTask(meta, installAnyway); toast('Installed despite missing dependencies.'); return result; }
     dependencyInstallQueue.push({ message: error.message, install: async () => { const result = await runModTask(meta, installAnyway); const missing = result?.warnings || []; toast(missing.length ? `Installed without ${missing.length} required dependenc${missing.length === 1 ? 'y' : 'ies'}: ${missing.join(', ')}` : 'Installed with missing dependencies.'); } });
     showNextDependencyWarning(); return null;
   }
@@ -258,9 +320,17 @@ let worldProfile = null, profileWorlds = [], pendingWorldNames = [];
 async function refreshWorldManager() {
   if (!worldProfile) return; profileWorlds = await api.listWorlds(worldProfile.id); const list = $('#worlds-list'); list.replaceChildren(); $('#world-delete-confirm').hidden = true;
   if (!profileWorlds.length) list.append(emptyMods('No worlds in this profile', 'Import worlds from the default launcher, another folder, or a ZIP archive.'));
-  for (const world of profileWorlds) { const label = el('label', 'world-row'), input = document.createElement('input'), copy = el('span', 'world-row-copy'); input.type = 'checkbox'; input.value = world.name; copy.append(el('strong', '', world.name), el('small', '', `${new Date(world.modifiedAt).toLocaleString()} · ${formatBytes(world.size)}`)); label.append(input, copy); list.append(label); }
-  $('#transfer-worlds').disabled = !profileWorlds.length || state.profiles.length < 2; $('#delete-worlds').disabled = !profileWorlds.length;
+  for (const world of profileWorlds) {
+    const label = el('label', 'world-row'), input = document.createElement('input'), copy = el('span', 'world-row-copy'); input.type = 'checkbox'; input.value = world.name;
+    const icon = world.iconUrl ? document.createElement('img') : el('span', 'world-icon-fallback', '▦'); if (world.iconUrl) { icon.className = 'world-icon'; icon.src = world.iconUrl; icon.alt = ''; }
+    const heading = el('span', 'world-heading'), name = el('strong', '', world.displayName || world.name), health = el('span', `world-health ${world.health || 'damaged'}`, world.health === 'healthy' ? 'Healthy' : world.health === 'recoverable' ? 'Repair available' : 'Needs attention'); heading.append(name, health);
+    const folder = world.displayName && world.displayName !== world.name ? `Folder: ${world.name} · ` : '', version = world.gameVersion || (world.dataVersion ? `Data version ${world.dataVersion}` : 'Unknown version'), played = new Date(world.lastPlayed || world.modifiedAt).toLocaleString();
+    copy.append(heading, el('small', '', `${folder}${version} · Last played ${played} · ${formatBytes(world.size)}`), el('small', 'world-health-copy', world.healthMessage || ''));
+    label.title = world.healthMessage || ''; label.append(input, icon, copy); list.append(label);
+  }
+  updateWorldActions();
 }
+function updateWorldActions() { const count = selectedWorldNames().length; $('#transfer-worlds').disabled = !count || state.profiles.length < 2; $('#delete-worlds').disabled = !count; $('#backup-worlds').disabled = !count; }
 async function openWorldManager(profile) { worldProfile = profile; $('#worlds-title').textContent = `${profile.name} worlds`; $('#worlds-error').textContent = ''; $('#worlds-dialog').showModal(); await refreshWorldManager(); }
 async function runWorldImport(action) { $('#worlds-error').textContent = ''; try { const result = await action(); if (!result) return; await refreshWorldManager(); toast(`${result.imported.length} world${result.imported.length === 1 ? '' : 's'} imported.`); } catch (error) { $('#worlds-error').textContent = error.message; } }
 function openWorldTransfer() {
@@ -290,16 +360,32 @@ async function loadSkins() {
   copy.append(el('strong', '', account ? `${account.name} · Active skin` : 'No account selected'), el('small', '', activeError ? activeError.message : active ? `${active.variant === 'slim' ? 'Slim' : 'Classic'} arms${active.url ? '' : ' · Default skin'}` : 'Choose an account to apply skins.')); summary.append(copy);
   renderSkinLibrary();
 }
+function skinFace(image, rect, overlay = null) { const canvas = document.createElement('canvas'); canvas.width = rect[2] * 8; canvas.height = rect[3] * 8; const context = canvas.getContext('2d'); context.imageSmoothingEnabled = false; context.drawImage(image, ...rect, 0, 0, canvas.width, canvas.height); if (overlay && image.height >= 64) context.drawImage(image, ...overlay, 0, 0, canvas.width, canvas.height); return `url(${canvas.toDataURL()})`; }
+function skinPart(image, name, dimensions, position, faces, overlays = null) {
+  const part = el('div', `skin-part skin-${name}`); part.style.setProperty('--w', `${dimensions[0] * 4}px`); part.style.setProperty('--h', `${dimensions[1] * 4}px`); part.style.setProperty('--d', `${dimensions[2] * 4}px`); part.style.setProperty('--hw', `${dimensions[0] * 2}px`); part.style.setProperty('--hh', `${dimensions[1] * 2}px`); part.style.setProperty('--hd', `${dimensions[2] * 2}px`); part.style.left = `${position[0] * 4}px`; part.style.top = `${position[1] * 4}px`;
+  for (const side of ['front', 'back', 'left', 'right', 'top', 'bottom']) { const face = el('span', `skin-face ${side}`); face.style.backgroundImage = skinFace(image, faces[side], overlays?.[side]); part.append(face); } return part;
+}
+function createSkinPreview(skin) {
+  const stage = el('div', 'skin-3d-stage'), model = el('div', 'skin-3d-model'), loading = el('span', 'skin-3d-loading', 'Loading 3D…'); stage.setAttribute('aria-label', `Interactive 3D preview of ${skin.name}`); stage.title = 'Drag to rotate'; stage.append(model, loading); const image = new Image();
+  image.onload = () => { loading.remove(); const slim = skin.variant === 'slim', arm = slim ? 3 : 4;
+    const head = { top:[8,0,8,8],bottom:[16,0,8,8],right:[0,8,8,8],front:[8,8,8,8],left:[16,8,8,8],back:[24,8,8,8] }, hat = { top:[40,0,8,8],bottom:[48,0,8,8],right:[32,8,8,8],front:[40,8,8,8],left:[48,8,8,8],back:[56,8,8,8] };
+    const body = { top:[20,16,8,4],bottom:[28,16,8,4],right:[16,20,4,12],front:[20,20,8,12],left:[28,20,4,12],back:[32,20,8,12] }, body2 = { top:[20,32,8,4],bottom:[28,32,8,4],right:[16,36,4,12],front:[20,36,8,12],left:[28,36,4,12],back:[32,36,8,12] };
+    const limb = (x,y,w=4) => ({ top:[x+4,y,w,4],bottom:[x+4+w,y,w,4],right:[x,y+4,4,12],front:[x+4,y+4,w,12],left:[x+4+w,y+4,4,12],back:[x+8+w,y+4,w,12] });
+    model.append(skinPart(image,'head',[8,8,8],[6,0],head,hat), skinPart(image,'body',[8,12,4],[6,8],body,body2), skinPart(image,'right-arm',[arm,12,4],[6-arm,8],limb(40,16,arm),limb(40,32,arm)), skinPart(image,'left-arm',[arm,12,4],[14,8],image.height >= 64 ? limb(32,48,arm) : limb(40,16,arm),image.height >= 64 ? limb(48,48,arm) : null), skinPart(image,'right-leg',[4,12,4],[6,20],limb(0,16),limb(0,32)), skinPart(image,'left-leg',[4,12,4],[10,20],image.height >= 64 ? limb(16,48) : limb(0,16),image.height >= 64 ? limb(0,48) : null));
+  }; image.onerror = () => { loading.textContent = 'Preview unavailable'; }; image.src = skin.url;
+  let angle = -24, dragging = false, start = 0, origin = angle; const rotate = () => { model.style.transform = `rotateX(-7deg) rotateY(${angle}deg)`; };
+  stage.addEventListener('pointerdown', event => { dragging = true; start = event.clientX; origin = angle; stage.classList.add('dragging'); stage.setPointerCapture(event.pointerId); }); stage.addEventListener('pointermove', event => { if (!dragging) return; angle = origin + (event.clientX - start) * .8; rotate(); }); stage.addEventListener('pointerup', event => { dragging = false; stage.classList.remove('dragging'); stage.releasePointerCapture(event.pointerId); }); return stage;
+}
 function renderSkinLibrary() {
   const grid = $('#skins-grid'); grid.replaceChildren();
   if (!skinLibrary.length) return grid.append(emptyMods('Your skin library is empty', 'Import PNG skins once, then switch between them whenever you want.'));
   for (const skin of skinLibrary) {
-    const card = el('article', 'skin-card'); card.dataset.id = skin.id; const image = document.createElement('img'); image.src = skin.url; image.alt = skin.name;
+    const card = el('article', 'skin-card'); card.dataset.id = skin.id; const preview = createSkinPreview(skin);
     const copy = el('div', 'skin-card-copy'); copy.append(el('strong', '', skin.name), el('small', '', `${skin.variant === 'slim' ? 'Slim' : 'Classic'} arms · Added ${new Date(skin.createdAt).toLocaleDateString()}`));
     const actions = el('div', 'skin-card-actions');
     const apply = button('Apply', 'primary small', async () => { if (!skinAccountId) throw new Error('Add or choose an account first.'); await api.applySkin(skinAccountId, skin.id); await loadSkins(); toast('Skin applied.'); }); apply.disabled = !skinAccountId || busy || running;
     actions.append(apply, button('Rename', 'quiet small', () => { $('#skin-rename-id').value = skin.id; $('#skin-rename-name').value = skin.name; $('#skin-rename-error').textContent = ''; $('#skin-rename-dialog').showModal(); $('#skin-rename-name').focus(); }), button('Delete', 'quiet small', () => confirmDeleteSkin(card, skin)));
-    card.append(image, copy, actions); grid.append(card);
+    card.append(preview, copy, actions); grid.append(card);
   }
 }
 function confirmDeleteSkin(card, skin) {
@@ -355,15 +441,15 @@ function openProfile(profile = null, version = null) {
   $('#profile-version-search').value = '';
   closeVersionPicker();
   renderProfileVersions('', profile?.version || version || catalog.latest.release);
-  $('#profile-memory').value = String(profile?.memory || 4);
-  $('#profile-java').value = !profile?.javaPath || ['java', 'java.exe', 'auto'].includes(profile.javaPath.toLowerCase()) ? 'auto' : profile.javaPath;
-  $('#profile-java-args').value = (profile?.javaArgs || []).join('\n');
-  $('#profile-game-args').value = (profile?.gameArgs || []).join('\n');
-  $('#profile-jvm-args').textContent = profileJvmArguments(profile?.memory || 4).join('\n');
+  $('#profile-memory').value = String(profile?.memory || state.settings?.defaultMemory || 4);
+  const defaultJava = state.settings?.defaultJava || 'auto'; $('#profile-java').value = !profile?.javaPath ? defaultJava : ['java', 'java.exe', 'auto'].includes(profile.javaPath.toLowerCase()) ? 'auto' : profile.javaPath;
+  $('#profile-java-args').value = (profile?.javaArgs || String(state.settings?.defaultJvmArgs || '').split(/\s+/).filter(Boolean)).join('\n');
+  $('#profile-game-args').value = (profile?.gameArgs || String(state.settings?.defaultGameArgs || '').split(/\s+/).filter(Boolean)).join('\n');
+  $('#profile-jvm-args').textContent = profileJvmArguments(profile?.memory || state.settings?.defaultMemory || 4, $('#profile-version').value).join('\n');
   $('#profile-error').textContent = '';
   $('#java-check-result').textContent = 'Automatic Java is included; matching older runtimes are installed when needed.';
   $('#profile-dialog').showModal();
-  $('#profile-loader').value = profile?.loader || 'vanilla';
+  $('#profile-loader').value = profile?.loader || state.settings?.defaultLoader || 'vanilla';
   loadLoaderVersions(profile?.loaderVersion);
 }
 
@@ -384,12 +470,12 @@ async function loadLoaderVersions(selectedVersion) {
   finally { if (request === loaderRequest) { loaderLoading = false; $('#save-profile').disabled = !select.value; } }
 }
 $('#profile-loader').addEventListener('change', () => loadLoaderVersions());
-$('#profile-version').addEventListener('change', () => loadLoaderVersions());
+$('#profile-version').addEventListener('change', () => { $('#profile-jvm-args').textContent = profileJvmArguments(Number($('#profile-memory').value), $('#profile-version').value).join('\n'); loadLoaderVersions(); });
 $('#profile-version-trigger').addEventListener('click', () => { const panel = $('#profile-version-panel'), opening = panel.hidden; panel.hidden = !opening; $('#profile-version-trigger').setAttribute('aria-expanded', String(opening)); if (opening) { $('#profile-version-search').focus(); $('#profile-version-search').select(); } });
 $('#profile-version-search').addEventListener('input', () => renderProfileVersions($('#profile-version-search').value));
 $('#profile-version-search').addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); closeVersionPicker(); $('#profile-version-trigger').focus(); } });
 $('#profile-dialog').addEventListener('click', event => { if (!event.target.closest('.version-picker')) closeVersionPicker(); });
-$('#profile-memory').addEventListener('change', () => { $('#profile-jvm-args').textContent = profileJvmArguments(Number($('#profile-memory').value)).join('\n'); });
+$('#profile-memory').addEventListener('change', () => { $('#profile-jvm-args').textContent = profileJvmArguments(Number($('#profile-memory').value), $('#profile-version').value).join('\n'); });
 $('#mods-profile').addEventListener('change', () => { modState = null; shaderState = null; resourcepackState = null; shaderAdapter = null; modSearchState = { query: '', offset: 0, total: 0, hits: [] }; shaderSearchState = { query: '', offset: 0, total: 0, hits: [] }; resourcepackSearchState = { query: '', offset: 0, total: 0, hits: [] }; guard(loadModsView); });
 $$('[data-library-tab]').forEach(tab => tab.addEventListener('click', () => { if (tab.dataset.libraryTab === 'shaders' && !shaderAdapter) return; libraryTab = tab.dataset.libraryTab; $('#mod-search').value = ''; guard(loadModsView); }));
 $('#mod-search-form').addEventListener('submit', event => { event.preventDefault(); guard(() => searchMods(false)); });
@@ -476,6 +562,8 @@ $('#worlds-dialog').addEventListener('cancel', event => { event.preventDefault()
 $('#import-default-worlds').addEventListener('click', () => runWorldImport(() => api.importDefaultWorlds(worldProfile.id)));
 $('#import-world-folder').addEventListener('click', () => runWorldImport(() => api.importWorldFolder(worldProfile.id)));
 $('#import-world-zip').addEventListener('click', () => runWorldImport(() => api.importWorldZip(worldProfile.id)));
+$('#worlds-list').addEventListener('change', updateWorldActions);
+$('#backup-worlds').addEventListener('click', () => guard(async () => { const names = selectedWorldNames(); if (!names.length) throw new Error('Choose at least one world.'); const result = await api.backupWorlds(worldProfile.id, names, 'Before upgrade'); toast(`${result.worlds.length} world${result.worlds.length === 1 ? '' : 's'} backed up.`); }).catch(error => { $('#worlds-error').textContent = error.message; }));
 $('#transfer-worlds').addEventListener('click', openWorldTransfer);
 $('#delete-worlds').addEventListener('click', requestWorldDelete);
 $('#cancel-world-delete').addEventListener('click', () => { $('#world-delete-confirm').hidden = true; });
@@ -508,7 +596,18 @@ $('#play-button').addEventListener('click', () => guard(async () => {
 }));
 $('#cancel-install').addEventListener('click', () => guard(async () => { await api.cancel(); $('#cancel-install').disabled = true; $('#download-title').textContent = 'Cancelling…'; }));
 $('#clear-log').addEventListener('click', () => $('#log').textContent = 'Activity view cleared. Game logs remain in the launcher folder.\n');
-$('#setting-logging').addEventListener('change', event => guard(async () => { state = await api.saveSettings({ loggingEnabled: event.target.checked }); $('#log').textContent = event.target.checked ? 'Game logging enabled. New launches will appear here.\n' : 'Logging disabled. New game launches will discard all output.\n'; render(); toast(event.target.checked ? 'Logging enabled.' : 'All game logging disabled.'); }));
+$('#settings-panel').addEventListener('change', event => guard(async () => {
+  const input = event.target.closest('[data-setting]'); if (!input) return; const key = input.dataset.setting, type = input.dataset.settingType;
+  const value = type === 'toggle' ? input.checked : type === 'number' || (type === 'select' && /^\d+$/.test(input.value)) ? Number(input.value) : input.value;
+  state = await api.saveSettings({ ...state.settings, [key]: value }); applySettingsAppearance(); renderSettings();
+  if (key === 'loggingEnabled') $('#log').textContent = value ? 'Game logging enabled. New launches will appear here.\n' : 'Logging disabled. New game launches will discard all output.\n';
+  toast(`${settingSections[settingsTab].fields.find(field => field[0] === key)?.[1] || 'Setting'} saved.`);
+}));
+for (const selector of ['#close-storage-details', '#done-storage-details']) $(selector).addEventListener('click', () => $('#storage-details-dialog').close());
+$('#storage-details-dialog').addEventListener('cancel', event => { event.preventDefault(); event.currentTarget.close(); });
+for (const selector of ['#close-recover-orphan', '#cancel-recover-orphan']) $(selector).addEventListener('click', () => $('#recover-orphan-dialog').close());
+$('#recover-orphan-dialog').addEventListener('cancel', event => { event.preventDefault(); event.currentTarget.close(); });
+$('#recover-orphan-form').addEventListener('submit', event => { event.preventDefault(); guard(async () => { try { state = await api.recoverOrphan($('#recover-orphan-id').value, $('#recover-orphan-name').value.trim(), $('#recover-orphan-version').value); $('#recover-orphan-dialog').close(); render(); await renderStorageDetails(); await loadStorageManager(); toast('Profile recovered.'); } catch (error) { $('#recover-orphan-error').textContent = error.message; } }); });
 for (const selector of ['#close-dialog', '#cancel-dialog']) $(selector).addEventListener('click', () => $('#profile-dialog').close());
 $('#profile-form').addEventListener('submit', async event => {
   if (loaderLoading) { event.preventDefault(); return; }
@@ -557,16 +656,17 @@ for (const selector of ['#close-skin-import', '#cancel-skin-import']) $(selector
 $('#skin-import-form').addEventListener('submit', async event => { event.preventDefault(); $('#skin-import-error').textContent = ''; try { const skin = await api.importSkin($('#skin-import-name').value, $('#skin-import-variant').value); if (!skin) return; $('#skin-import-dialog').close(); await loadSkins(); toast('Skin saved to your library.'); } catch (error) { $('#skin-import-error').textContent = error.message; } });
 for (const selector of ['#close-skin-rename', '#cancel-skin-rename']) $(selector).addEventListener('click', () => $('#skin-rename-dialog').close());
 $('#skin-rename-form').addEventListener('submit', async event => { event.preventDefault(); $('#skin-rename-error').textContent = ''; try { skinLibrary = await api.renameSkin($('#skin-rename-id').value, $('#skin-rename-name').value); $('#skin-rename-dialog').close(); renderSkinLibrary(); toast('Skin renamed.'); } catch (error) { $('#skin-rename-error').textContent = error.message; } });
-$('#copy-code').addEventListener('click', () => guard(async () => { await navigator.clipboard.writeText($('#login-code').textContent); toast('Sign-in code copied.'); }));
+$('#copy-code').addEventListener('click', () => guard(async () => { await api.copyDeviceCode($('#login-code').textContent.trim()); toast('Sign-in code copied.'); }));
 $('#cancel-login').addEventListener('click', () => guard(async () => { await api.cancelLogin(); $('#login-status').textContent = 'Cancelling…'; }));
 $('#login-dialog').addEventListener('cancel', event => { event.preventDefault(); guard(() => api.cancelLogin()); });
 
 async function boot() {
   if (!api) { $('#connection-label').textContent = 'Open this app with Electron'; return; }
   state = await api.state(); busy = state.busy; running = state.running; try { [installedModpacks, customPacks] = await Promise.all([api.listModpacks(), api.listCustomPacks()]); } catch {} render();
+  if (state.settings?.rememberPage) { const page = localStorage.getItem('blocklane:last-page'); if (page && $(`#view-${page}`)) navigate(page); }
   try { accountState = await api.accounts(); render(); } catch (error) { toast(error.message, true); }
   $('#stat-java').textContent = 'Managed'; $('#java-caption').textContent = 'Java 25 included · automatic selection';
-  void checkLauncherUpdates({ silent: true });
+  if (state.settings?.autoCheckUpdates !== false) void checkLauncherUpdates({ silent: true });
   await guard(() => loadCatalog());
 }
 guard(boot);

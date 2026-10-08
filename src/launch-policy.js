@@ -1,12 +1,14 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
-// Use the Windows GUI entry point for the game; runtime inspection still uses java.exe.
 async function gameJavaExecutable(executable, platform = process.platform) {
   if (platform !== 'win32' || path.basename(executable).toLowerCase() !== 'java.exe') return executable;
-  const gui = path.join(path.dirname(executable), 'javaw.exe');
-  try { if ((await fs.stat(gui)).isFile()) return gui; }
-  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  const javaw = path.join(path.dirname(executable), 'javaw.exe');
+  try {
+    if ((await fs.stat(javaw)).isFile()) return javaw;
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
   return executable;
 }
 
@@ -17,13 +19,15 @@ function gameEnvironment(source = process.env) {
     !['_JAVA_OPTIONS', 'JAVA_TOOL_OPTIONS', 'JDK_JAVA_OPTIONS'].includes(name.toUpperCase())));
 }
 
-// Match the official launcher presets while substituting the profile's RAM cap.
-function jvmMemoryArgs(memory, javaMajor = 21, customArgs = []) {
+// Keep heap sizing deterministic across vanilla and loader-generated metadata.
+// Java 25 Minecraft releases use the same low-pause collector policy currently
+// emitted by Mojang's launcher. Older runtimes retain the compatible G1 policy.
+function jvmMemoryArgs(memory, javaMajor = 21) {
   const max = Math.max(1, Number(memory) || 4);
-  const args = [`-Xms${Math.min(2, max)}G`, `-Xmx${max}G`];
-  if (customArgs.some(arg => /^-XX:[+-]Use[A-Za-z0-9]+GC$/.test(arg))) return args;
-  if (javaMajor >= 25) return [...args, '-XX:+UseCompactObjectHeaders', '-XX:+AlwaysPreTouch', '-XX:+UseStringDeduplication', '-XX:+UseZGC'];
-  return [...args, '-XX:+UnlockExperimentalVMOptions', '-XX:+UseG1GC', '-XX:G1NewSizePercent=20', '-XX:G1ReservePercent=20', '-XX:MaxGCPauseMillis=50', '-XX:G1HeapRegionSize=32M'];
+  const initial = Math.min(2, Math.max(1, Math.ceil(max / 2)));
+  const heap = [`-Xms${initial}G`, `-Xmx${max}G`];
+  if (javaMajor >= 25) return [...heap, '-XX:+UseCompactObjectHeaders', '-XX:+AlwaysPreTouch', '-XX:+UseStringDeduplication', '-XX:+UseZGC'];
+  return [...heap, '-XX:+UseG1GC', '-XX:+ParallelRefProcEnabled', '-XX:+DisableExplicitGC', '-XX:MaxGCPauseMillis=50'];
 }
 
 function withoutHeapArgs(args) {

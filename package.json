@@ -1,6 +1,6 @@
 {
   "name": "blocklane",
-  "version": "0.4.33",
+  "version": "0.4.48",
   "description": "A focused Minecraft Java Edition launcher and version manager",
   "main": "src/main.js",
   "author": "",
@@ -31,12 +31,14 @@
     },
     "files": [
       "src/**/*",
+      "assets/**/*",
       "runtimes/**/*",
       "package.json"
     ],
     "asar": false,
     "win": {
       "target": "nsis",
+      "icon": "assets/icon.ico",
       "signAndEditExecutable": false
     },
     "nsis": {

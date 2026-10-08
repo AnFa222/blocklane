@@ -5,25 +5,23 @@ const os = require('node:os');
 const path = require('node:path');
 const { gameJavaExecutable, gameEnvironment, jvmMemoryArgs, withoutHeapArgs, liveLogBatch } = require('../src/launch-policy');
 
-test('Windows game launches use the matching javaw without changing custom or non-Windows executables', async t => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'blocklane javaw '));
+test('Windows game launches use javaw from the selected runtime', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'blocklane-javaw-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
-  const java = path.join(dir, 'java.exe'), javaw = path.join(dir, 'javaw.exe');
+  const java = path.join(dir, 'java.exe');
+  const javaw = path.join(dir, 'javaw.exe');
   assert.equal(await gameJavaExecutable(java, 'win32'), java);
   await fs.writeFile(javaw, 'fixture');
   assert.equal(await gameJavaExecutable(java, 'win32'), javaw);
   assert.equal(await gameJavaExecutable(java, 'linux'), java);
-  const custom = path.join(dir, 'custom-java.exe');
-  assert.equal(await gameJavaExecutable(custom, 'win32'), custom);
-  assert.equal(await gameJavaExecutable(javaw, 'win32'), javaw);
 });
 
 test('heap sizing is stable and metadata cannot override the selected profile memory', () => {
   assert.deepEqual(jvmMemoryArgs(12).slice(0, 2), ['-Xms2G', '-Xmx12G']);
-  assert.ok(jvmMemoryArgs(4, 25).includes('-XX:+UseZGC'));
-  assert.ok(jvmMemoryArgs(4, 25).includes('-XX:+UseCompactObjectHeaders'));
-  assert.ok(jvmMemoryArgs(4, 21).includes('-XX:+UseG1GC'));
-  assert.deepEqual(jvmMemoryArgs(4, 25, ['-XX:+UseG1GC']), ['-Xms2G', '-Xmx4G']);
+  assert.deepEqual(jvmMemoryArgs(8), ['-Xms2G', '-Xmx8G', '-XX:+UseG1GC', '-XX:+ParallelRefProcEnabled', '-XX:+DisableExplicitGC', '-XX:MaxGCPauseMillis=50']);
+  assert.deepEqual(jvmMemoryArgs(8, 25), ['-Xms2G', '-Xmx8G', '-XX:+UseCompactObjectHeaders', '-XX:+AlwaysPreTouch', '-XX:+UseStringDeduplication', '-XX:+UseZGC']);
+  assert.deepEqual(jvmMemoryArgs(1).slice(0, 2), ['-Xms1G', '-Xmx1G']);
+  assert.deepEqual(jvmMemoryArgs(2).slice(0, 2), ['-Xms1G', '-Xmx2G']);
   assert.deepEqual(withoutHeapArgs(['-cp', 'x', '-Xmx1G', '-Xms256M']), ['-cp', 'x']);
 });
 

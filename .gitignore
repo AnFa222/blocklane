@@ -9,3 +9,9 @@ accounts.enc
 .env
 .env.*
 publication/
+
+.builder-cache/
+.electron-cache/
+.npm-cache/
+.test-tmp/
+diagnostics/

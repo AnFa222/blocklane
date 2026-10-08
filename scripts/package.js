@@ -1,5 +1,8 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { execFile } = require('node:child_process');
+const { promisify } = require('node:util');
+const exec = promisify(execFile);
 const project = path.resolve(__dirname, '..');
 const version = require('../package.json').version;
 const target = path.join(project, 'dist', `Blocklane-${version}-win32-x64`);
@@ -15,11 +18,13 @@ async function main() {
   await fs.mkdir(target, { recursive: true });
   await fs.cp(path.join(project, 'node_modules/electron/dist'), target, { recursive: true });
   await fs.rename(path.join(target, 'electron.exe'), path.join(target, 'Blocklane.exe'));
+  await exec(path.join(project, 'node_modules', 'electron-winstaller', 'vendor', 'rcedit.exe'), [path.join(target, 'Blocklane.exe'), '--set-icon', path.join(project, 'assets', 'icon.ico'), '--set-version-string', 'ProductName', 'Blocklane', '--set-version-string', 'FileDescription', 'Blocklane Minecraft Launcher', '--set-file-version', version, '--set-product-version', version]);
   const app = path.join(target, 'resources/app');
   await fs.mkdir(app, { recursive: true });
   await fs.cp(path.join(project, 'src'), path.join(app, 'src'), { recursive: true });
   await fs.writeFile(path.join(app, 'src/app-config.json'), JSON.stringify(config, null, 2));
   await fs.cp(path.join(project, 'runtimes'), path.join(app, 'runtimes'), { recursive: true });
+  await fs.cp(path.join(project, 'assets'), path.join(app, 'assets'), { recursive: true });
   const manifest = JSON.parse(await fs.readFile(path.join(project, 'package.json'), 'utf8'));
   delete manifest.devDependencies; delete manifest.scripts;
   await fs.writeFile(path.join(app, 'package.json'), JSON.stringify(manifest, null, 2));

@@ -23,6 +23,19 @@ const modpackExport = require('./modpack-export');
 const customPacks = require('./custom-packs');
 const contentImport = require('./content-import');
 const LOCAL_SKIN_MOD = 'idMHQ4n2';
+const SETTINGS_DEFAULTS = Object.freeze({
+  loggingEnabled: true, launcherDiagnostics: true, autoCheckUpdates: true, launcherVisibility: 'keep', defaultMemory: 4,
+  startWithWindows: false, startMinimized: false, minimizeToTray: false, confirmActiveExit: true, rememberPage: true, compactSidebar: false, uiScale: 100, theme: 'dark', reducedMotion: false,
+  defaultJava: 'auto', defaultWidth: 1280, defaultHeight: 720, defaultFullscreen: true, defaultJvmArgs: '', defaultGameArgs: '', defaultLoader: 'vanilla', selectLastProfile: true, requireAccountChoice: false,
+  downloadConcurrency: 4, downloadLimitMbps: 0, downloadRetries: 3, downloadTimeout: 30, verifyDownloads: true, pauseDownloadsWhilePlaying: false, downloadNotifications: true,
+  cacheLimitGb: 10, autoCleanCache: false, removeUnusedLibraries: false, storageWarningGb: 5,
+  updateChannel: 'stable', autoDownloadUpdates: false, checkModUpdates: true, checkModpackUpdates: true, checkLoaderUpdates: true, updateNotifyOnly: true,
+  maxBackupGb: 20, removeOldBackups: true, backupRetention: 10, backupBeforeLaunch: false, backupBeforeVersionChange: true, backupBeforeContentUpdate: true, backupFrequency: 'manual', backupScreenshots: false, backupConfigs: true, backupContent: true, compressBackups: false, verifyBackups: true,
+  autoDependencies: true, askOptionalDependencies: true, allowMissingDependencies: false, releaseChannel: 'stable', autoUpdateMods: false, preserveOldMods: true, detectIncompatibleMods: true, warnDuplicateMods: true, modrinthSort: 'downloads',
+  logRetentionDays: 14, redactDiagnostics: true, crashReports: true, networkDiagnostics: false, refreshSessions: true, protectLocalProfiles: true, streamingMode: false, defaultAccount: '',
+  limitCpuWhilePlaying: true, pauseCatalogWhilePlaying: true, hardwareAcceleration: true, cacheImages: true, imageCacheMb: 256, reduceMotionWhilePlaying: true,
+  notifyLaunchFailure: true, notifyCrash: true, notifyInstall: true, notifyBackup: true, notifyUpdates: true, notifyIncompatibility: true, notificationSound: true, quietWhilePlaying: false
+});
 
 const MANIFEST = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json';
 const exec = promisify(execFile);
@@ -234,6 +247,19 @@ function normalizeVersionMetadata(meta) {
   } };
 }
 
+async function enforceExclusiveFullscreen(gameDir) {
+  const file = path.join(gameDir, 'options.txt');
+  let text = await fs.readFile(file, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
+  const set = (key, value) => {
+    const line = `${key}:${value}`;
+    const pattern = new RegExp(`^${key}:.*$`, 'm');
+    text = pattern.test(text) ? text.replace(pattern, line) : `${text}${text && !text.endsWith('\n') ? '\n' : ''}${line}\n`;
+  };
+  set('exclusiveFullscreen', 'true');
+  set('fullscreen', 'true');
+  await fs.writeFile(file, text, 'utf8');
+}
+
 function validateProfile(input) {
   if (!input || typeof input.name !== 'string' || !input.name.trim() || input.name.length > 50) throw new Error('Use a profile name between 1 and 50 characters.');
   validId(input.version);
@@ -296,7 +322,7 @@ class Launcher {
   async init() {
     await fs.mkdir(this.root, { recursive: true });
     this.state = await readJson(path.join(this.root, 'state.json'), { profiles: [], selectedProfile: null });
-    this.state.settings = { loggingEnabled: true, ...(this.state.settings || {}) };
+    this.state.settings = { ...SETTINGS_DEFAULTS, ...(this.state.settings || {}) };
     return this.snapshot();
   }
   async snapshot() {
@@ -310,9 +336,63 @@ class Launcher {
   }
   async persist() { await atomicJson(path.join(this.root, 'state.json'), this.state); return this.snapshot(); }
   async saveSettings(input) {
-    if (!input || typeof input.loggingEnabled !== 'boolean') throw new Error('Invalid launcher settings.');
-    this.state.settings = { ...this.state.settings, loggingEnabled: input.loggingEnabled };
+    if (!input || typeof input !== 'object') throw new Error('Invalid launcher settings.');
+    const next = { ...this.state.settings };
+    for (const [key, fallback] of Object.entries(SETTINGS_DEFAULTS)) {
+      if (!(key in input)) continue; const value = input[key];
+      if (typeof value !== typeof fallback || (typeof value === 'string' && value.length > 1000) || (typeof value === 'number' && (!Number.isFinite(value) || value < 0 || value > 100000))) throw new Error('Invalid launcher settings.');
+      next[key] = value;
+    }
+    if (!['keep', 'minimize', 'hide'].includes(next.launcherVisibility) || ![2, 4, 6, 8, 12, 16].includes(next.defaultMemory) || !['dark', 'light', 'system'].includes(next.theme) || !['stable', 'beta', 'development'].includes(next.updateChannel) || !['stable', 'beta', 'alpha'].includes(next.releaseChannel)) throw new Error('Invalid launcher settings.');
+    this.state.settings = next;
     return this.persist();
+  }
+  async storageSummary() {
+    const categories = [['versions', 'Game versions'], ['libraries', 'Libraries'], ['assets', 'Assets'], ['instances', 'Profiles and worlds'], ['runtimes', 'Java runtimes'], ['backups', 'Backups'], ['modpack-cache', 'Download cache'], ['logs', 'Logs']];
+    const sizeOf = async root => { let bytes = 0, files = 0; const pending = [root]; while (pending.length && files < 500000) { const current = pending.pop(); for (const item of await fs.readdir(current, { withFileTypes: true }).catch(() => [])) { const file = path.join(current, item.name); if (item.isDirectory()) pending.push(file); else if (item.isFile()) { files += 1; bytes += (await fs.stat(file).catch(() => ({ size: 0 }))).size; } } } return { bytes, files }; };
+    const rows = await Promise.all(categories.map(async ([id, label]) => ({ id, label, ...(await sizeOf(path.join(this.root, id))) })));
+    const usedVersions = new Set(); for (const profile of this.state.profiles) { usedVersions.add(profile.version); usedVersions.add(loaders.profileVersionId(profile)); }
+    const installed = await fs.readdir(path.join(this.root, 'versions'), { withFileTypes: true }).catch(() => []); const unusedVersions = installed.filter(item => item.isDirectory() && !usedVersions.has(item.name)).map(item => item.name);
+    return { root: this.root, totalBytes: rows.reduce((sum, row) => sum + row.bytes, 0), categories: rows, unusedVersions };
+  }
+  async storageDetails(category) {
+    const roots = { versions: 'versions', libraries: 'libraries', assets: 'assets', instances: 'instances', runtimes: 'runtimes', backups: 'backups', 'modpack-cache': 'modpack-cache', logs: 'logs' };
+    if (!roots[category]) throw new Error('Unknown storage category.'); const base = path.join(this.root, roots[category]);
+    const sizeOf = async root => { let bytes = 0, files = 0; const pending = [root]; while (pending.length && files < 500000) { const current = pending.pop(); for (const item of await fs.readdir(current, { withFileTypes: true }).catch(() => [])) { const file = path.join(current, item.name); if (item.isDirectory()) pending.push(file); else if (item.isFile()) { files += 1; bytes += (await fs.stat(file).catch(() => ({ size: 0 }))).size; } } } return { bytes, files }; };
+    let entries = await fs.readdir(base, { withFileTypes: true }).catch(() => []), targets = entries.map(item => ({ key: item.name, name: item.name, file: path.join(base, item.name), directory: item.isDirectory() }));
+    if (category === 'backups') { targets = []; for (const profile of entries.filter(item => item.isDirectory())) for (const backup of await fs.readdir(path.join(base, profile.name), { withFileTypes: true }).catch(() => [])) if (backup.isDirectory()) targets.push({ key: `${profile.name}/${backup.name}`, name: backup.name.split('__', 2)[1] || backup.name, file: path.join(base, profile.name, backup.name), directory: true }); }
+    const usedVersions = new Set(); for (const profile of this.state.profiles) { usedVersions.add(profile.version); usedVersions.add(loaders.profileVersionId(profile)); }
+    const profileNames = new Map(this.state.profiles.map(profile => [profile.id, profile.name]));
+    const result = await Promise.all(targets.map(async target => { const stat = await fs.stat(target.file), measured = target.directory ? await sizeOf(target.file) : { bytes: stat.size, files: 1 }, orphan = category === 'instances' && !profileNames.has(target.key); const protectedEntry = (category === 'instances' && !orphan) || (category === 'versions' && usedVersions.has(target.key)); return { key: target.key, name: category === 'instances' ? profileNames.get(target.key) || `${target.name} (orphaned profile data)` : target.name, ...measured, modifiedAt: stat.mtime.toISOString(), protected: protectedEntry, orphan, reason: category === 'instances' ? orphan ? 'This folder is not attached to a profile. Inspect, recover, open, or permanently delete it.' : 'Manage this profile and its worlds from Profiles.' : protectedEntry ? 'This version is used by a profile.' : ['assets', 'libraries', 'runtimes'].includes(category) ? 'Minecraft will download this again when required.' : '' }; }));
+    return result.sort((a, b) => b.bytes - a.bytes);
+  }
+  async deleteStorageItem(category, key) {
+    if (this.working || this.child) throw new Error('Close Minecraft and wait for downloads before deleting storage.');
+    if (typeof key !== 'string' || !key || key.includes('\\') || key.split('/').some(part => !part || part === '.' || part === '..')) throw new Error('Invalid storage item.');
+    const details = await this.storageDetails(category), item = details.find(entry => entry.key === key); if (!item) throw new Error('Storage item was not found.'); if (item.protected) throw new Error(item.reason || 'This item is protected.');
+    const roots = { versions: 'versions', libraries: 'libraries', assets: 'assets', instances: 'instances', runtimes: 'runtimes', backups: 'backups', 'modpack-cache': 'modpack-cache', logs: 'logs' }; const root = roots[category]; if (!root) throw new Error('This storage category cannot be deleted here.');
+    const target = path.resolve(this.root, root, ...key.split('/')), base = path.resolve(this.root, root); if (!target.startsWith(base + path.sep)) throw new Error('Invalid storage item.'); await fs.rm(target, { recursive: true, force: true }); return this.storageDetails(category);
+  }
+  async inspectOrphan(id) {
+    validId(id); if (this.state.profiles.some(profile => profile.id === id)) throw new Error('This folder belongs to an active profile.'); const root = path.join(this.root, 'instances', id); await fs.access(root).catch(() => { throw new Error('Orphaned profile data was not found.'); });
+    const entries = await fs.readdir(root, { withFileTypes: true }), folders = []; for (const item of entries) { const file = path.join(root, item.name); if (item.isDirectory()) folders.push({ name: item.name, size: await worlds.directorySize(file) }); else if (item.isFile()) folders.push({ name: item.name, size: (await fs.stat(file)).size }); }
+    const savedWorlds = await worlds.list(path.join(root, 'saves')); return { id, worlds: savedWorlds.map(world => ({ name: world.displayName || world.name, folder: world.name, version: world.gameVersion, size: world.size })), entries: folders.sort((a, b) => b.size - a.size) };
+  }
+  async recoverOrphan(id, name, version) {
+    if (this.working || this.child) throw new Error('Close Minecraft and wait for downloads before recovering a profile.'); validId(id); if (this.state.profiles.some(profile => profile.id === id)) throw new Error('This folder already belongs to a profile.'); await fs.access(path.join(this.root, 'instances', id)).catch(() => { throw new Error('Orphaned profile data was not found.'); });
+    const catalog = await this.catalog(); if (!catalog.versions.some(item => item.id === version)) throw new Error('Choose an official Minecraft version.'); const profile = validateProfile({ id, name, version, memory: this.state.settings.defaultMemory, javaPath: this.state.settings.defaultJava, javaArgs: [], gameArgs: [], loader: 'vanilla', loaderVersion: '' });
+    this.state.profiles.push(profile); this.state.selectedProfile = id; return this.persist();
+  }
+  orphanFolder(id) { validId(id); if (this.state.profiles.some(profile => profile.id === id)) throw new Error('This folder belongs to an active profile.'); return path.join(this.root, 'instances', id); }
+  async clearStorageCache() {
+    if (this.working || this.child) throw new Error('Close Minecraft and wait for downloads before cleaning storage.');
+    for (const name of ['modpack-cache', 'world-staging', 'modpack-staging']) await fs.rm(path.join(this.root, name), { recursive: true, force: true });
+    return this.storageSummary();
+  }
+  async removeUnusedVersions() {
+    if (this.working || this.child) throw new Error('Close Minecraft and wait for downloads before cleaning storage.');
+    const summary = await this.storageSummary(); for (const id of summary.unusedVersions) { try { validId(id); } catch { continue; } await fs.rm(safePath(path.join(this.root, 'versions'), id), { recursive: true, force: true }); }
+    return this.storageSummary();
   }
   async catalog(refresh = false) {
     if (this.manifest && !refresh) return { ...this.manifest, cached: Boolean(this.manifestCached) };
@@ -391,6 +471,19 @@ class Launcher {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-'); const folder = `${stamp}__${label.replace(/\s+/g, ' ')}`; const destination = path.join(this.root, 'backups', profile.id, folder, 'saves');
     await fs.cp(source, destination, { recursive: true, force: false, errorOnExist: true }).catch(error => { if (error.code === 'ENOENT') throw new Error('This profile has no worlds to back up yet.'); throw error; });
     return { profileId: profile.id, path: destination, createdAt: new Date().toISOString(), name: label };
+  }
+  async backupWorlds(id, names, name = 'Before upgrade') {
+    if (this.child || this.working) throw new Error('Close Minecraft before backing up worlds.');
+    const profile = this.profile(id), source = path.join(this.root, 'instances', profile.id, 'saves');
+    const label = String(name || 'Before upgrade').trim(); if (!label || label.length > 80 || /[<>:"/\\|?*\x00-\x1f]/.test(label)) throw new Error('Backup names must be 1–80 characters and cannot contain Windows file characters.');
+    if (!Array.isArray(names) || !names.length) throw new Error('Choose at least one world.');
+    const available = new Set((await worlds.list(source)).map(world => world.name));
+    const selected = names.map(worlds.worldName); if (selected.some(world => !available.has(world))) throw new Error('One or more selected worlds could not be found.');
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-'); const folder = `${stamp}__${label.replace(/\s+/g, ' ')}`; const destination = path.join(this.root, 'backups', profile.id, folder, 'saves');
+    await fs.mkdir(destination, { recursive: true });
+    try { for (const world of selected) await fs.cp(path.join(source, world), path.join(destination, world), { recursive: true, force: false, errorOnExist: true }); }
+    catch (error) { await fs.rm(path.dirname(destination), { recursive: true, force: true }); throw error; }
+    return { profileId: profile.id, path: destination, createdAt: new Date().toISOString(), name: label, worlds: selected };
   }
   async backups(id) { const profile = this.profile(id), root = path.join(this.root, 'backups', profile.id); const entries = await fs.readdir(root, { withFileTypes: true }).catch(() => []); return (await Promise.all(entries.filter(item => item.isDirectory()).map(async item => { const [stamp, savedName] = item.name.split('__', 2), stat = await fs.stat(path.join(root, item.name)); return { id: item.name, name: savedName || 'World backup', createdAt: stat.birthtime.toISOString(), worlds: (await fs.readdir(path.join(root, item.name, 'saves'), { withFileTypes: true }).catch(() => [])).filter(world => world.isDirectory()).map(world => world.name) }; }))).sort((a, b) => b.createdAt.localeCompare(a.createdAt)); }
   async restoreBackup(id, backupId, worlds = null) {
@@ -525,7 +618,7 @@ class Launcher {
     }));
   }
   async modpackImport(file) {
-    if (typeof file !== 'string' || path.extname(file).toLowerCase() !== '.mrpack') throw new Error('Choose a Modrinth .mrpack file.');
+    if (typeof file !== 'string' || !['.mrpack', '.zip'].includes(path.extname(file).toLowerCase())) throw new Error('Choose a Modrinth .mrpack or supported modpack ZIP file.');
     const stat = await fs.stat(file); if (!stat.isFile() || stat.size > 2 * 1024 * 1024 * 1024) throw new Error('The modpack file is too large.');
     const taskId = crypto.createHash('sha256').update(file).digest('hex').slice(0, 12);
     return this.runContentTask('modpack', 'new', taskId, (signal, report) => this.withContentLock('modpacks', () => this.installModpackArchive(file, { source: 'local' }, null, signal, report)));
@@ -544,7 +637,7 @@ class Launcher {
       const profile = validateProfile({ ...spec, id: existing?.id }); profile.id ||= crypto.randomUUID();
       const instance = path.join(this.root, 'instances', profile.id), prior = await modpacks.readManifest(instance, io), oldManaged = prior?.managedFiles || [];
       await fs.mkdir(instance, { recursive: true }); await modpacks.applyStaging(instance, staging, oldManaged, staged.managed, Boolean(existing));
-      const pack = { ...metadata, title: metadata.title || staged.index.name, versionName: staged.index.versionId || metadata.versionNumber || '', installedAt: new Date().toISOString() };
+      const pack = { ...metadata, format: staged.format || 'modrinth', title: metadata.title || staged.index.name, versionName: staged.index.versionId || metadata.versionNumber || '', installedAt: new Date().toISOString() };
       await modpacks.writeManifest(instance, { schema: 1, pack, managedFiles: staged.managed }, io);
       profile.modpack = pack;
       if (existing) this.state.profiles[this.state.profiles.findIndex(item => item.id === existing.id)] = { ...existing, ...profile }; else this.state.profiles.push(profile);
@@ -638,7 +731,7 @@ class Launcher {
       const unique = [...new Map(jobs.map(j => [j.dest, j])).values()];
       let done = 0;
       this.progress(`Installing ${id}`, done, unique.length);
-      await pool(unique, async job => { await download(job, job.dest, signal); this.progress(`Installing ${id}`, ++done, unique.length); }, signal);
+      await pool(unique, async job => { await download(job, job.dest, signal); this.progress(`Installing ${id}`, ++done, unique.length); }, signal, this.state.settings.downloadConcurrency || 4);
       if (assetIndex.virtual || assetIndex.map_to_resources) {
         this.progress('Preparing legacy assets', 0, 1);
         meta.assetLayout = await materializeAssets({ ...assetIndex, id: meta.assetIndex.id }, this.root, signal);
@@ -667,6 +760,10 @@ class Launcher {
     if (this.working || this.child) throw new Error('A game or installation is already running.');
     const p = this.state.profiles.find(p => p.id === profileId);
     if (!p) throw new Error('Create or select a profile first.');
+    if (this.state.settings.backupBeforeLaunch) {
+      const saves = path.join(this.root, 'instances', p.id, 'saves');
+      if ((await fs.readdir(saves, { withFileTypes: true }).catch(() => [])).some(item => item.isDirectory())) await this.backupProfile(p.id, 'Automatic pre-launch backup');
+    }
     this.busy = true;
     this.controller = new AbortController();
     try {
@@ -691,6 +788,7 @@ class Launcher {
       for (const file of classpath) await fs.access(file).catch(() => { throw new Error('Game files are missing. Repair the version in the Versions tab.'); });
       const gameDir = path.join(this.root, 'instances', p.id);
       await fs.mkdir(gameDir, { recursive: true });
+      await enforceExclusiveFullscreen(gameDir);
       await resourcepacks.normalize(this.resourcepacksDir(p), this.loaderIO());
       const localSkin = await this.prepareLocalSkin(p, identity, gameDir, this.controller.signal);
       if (localSkin.active && !localSkin.supported) this.emit('log', 'Local skin support is unavailable for this profile. Minecraft will use its default offline skin.');
@@ -701,22 +799,22 @@ class Launcher {
         assets_index_name: meta.assetIndex.id, game_assets: meta.assetLayout === 'resources' ? path.join(this.root, 'resources') : path.join(this.root, 'assets', 'virtual', meta.assetIndex.id),
         auth_uuid: identity.uuid, auth_access_token: identity.accessToken, auth_session: `token:${identity.accessToken}:${identity.uuid}`,
         clientid: identity.clientId, auth_xuid: identity.xuid, user_type: 'msa', version_type: meta.type, user_properties: '{}',
-        resolution_width: '1280', resolution_height: '720'
+        resolution_width: String(this.state.settings.defaultWidth || 1280), resolution_height: String(this.state.settings.defaultHeight || 720)
       };
       const features = { is_demo_user: identity.demo, has_custom_resolution: true };
       const jvm = withoutHeapArgs(expandArgs(meta.arguments.jvm, values, features));
       const loggingEnabled = this.state.settings?.loggingEnabled !== false;
-      if (loggingEnabled && meta.logging?.client) jvm.push(meta.logging.client.argument.replace('${path}', safePath(path.join(this.root, 'assets', 'log_configs'), meta.logging.client.file.id)));
+      if (meta.logging?.client) jvm.push(meta.logging.client.argument.replace('${path}', safePath(path.join(this.root, 'assets', 'log_configs'), meta.logging.client.file.id)));
       const game = expandArgs(meta.arguments.game, values, features);
       if (identity.demo && !game.includes('--demo')) game.push('--demo');
-      const args = [...jvmMemoryArgs(p.memory, java.major, p.javaArgs || []), ...(p.javaArgs || []), ...jvm, meta.mainClass, ...game, ...(launchGameArgs || p.gameArgs || [])];
+      const args = [...jvmMemoryArgs(p.memory, java.major), ...(p.javaArgs || []), ...jvm, meta.mainClass, ...game, ...(launchGameArgs || p.gameArgs || [])];
       let log = null;
       if (loggingEnabled) {
         const logDir = path.join(this.root, 'logs'); await fs.mkdir(logDir, { recursive: true });
         log = createWriteStream(path.join(logDir, 'latest-launch.log')); log.on('error', () => {});
       }
       const gameJava = await gameJavaExecutable(javaPath);
-      const child = spawn(gameJava, args, { cwd: gameDir, windowsHide: true, env: gameEnvironment(), stdio: loggingEnabled ? ['ignore', 'pipe', 'pipe'] : 'ignore' });
+      const child = spawn(gameJava, args, { cwd: gameDir, windowsHide: true, env: gameEnvironment(), stdio: ['ignore', 'pipe', 'pipe'] });
       this.child = child;
       let liveLog = null;
       if (loggingEnabled) {
@@ -725,6 +823,9 @@ class Launcher {
         stdout.pipe(log, { end: false }); stderr.pipe(log, { end: false });
         liveLog = liveLogBatch(text => this.emit('log', text), 1000, 4096);
         stdout.on('data', liveLog.push); stderr.on('data', liveLog.push);
+      } else {
+        // Preserve the 0.4.20 child stream setup, discarding output when logging is off.
+        child.stdout.resume(); child.stderr.resume();
       }
       child.on('close', code => { liveLog?.flush(); log?.end(); this.child = null; this.emit('game-exit', { code }); });
       await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
@@ -734,5 +835,5 @@ class Launcher {
   }
 }
 
-module.exports = { Launcher, allowed, expandArgs, safePath, validId, validateProfile, libraryPlan, legacyArguments, normalizeVersionMetadata, materializeAssets, inspectJava, download, pool, atomicJson, readJson, trustedUrl, extractNatives, host, hashFile, remoteJson, launchIdentity, redactStream };
+module.exports = { Launcher, allowed, expandArgs, safePath, validId, validateProfile, libraryPlan, legacyArguments, normalizeVersionMetadata, enforceExclusiveFullscreen, materializeAssets, inspectJava, download, pool, atomicJson, readJson, trustedUrl, extractNatives, host, hashFile, remoteJson, launchIdentity, redactStream };
 

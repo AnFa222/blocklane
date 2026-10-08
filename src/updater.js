@@ -1,6 +1,7 @@
 const https = require('node:https');
 const CURRENT = require('../package.json').version;
 const API = 'https://api.github.com/repos/AnFa222/blocklane/releases/latest';
+const RELEASES_API = 'https://api.github.com/repos/AnFa222/blocklane/releases?per_page=20';
 
 function requestJson(url) {
   return new Promise((resolve, reject) => {
@@ -22,5 +23,5 @@ function newer(a, b) {
   }
   return false;
 }
-async function check() { const release = await requestJson(API); const latest = String(release.tag_name || '').replace(/^v/i, ''); const installer = (release.assets || []).find(asset => /Blocklane-.*-Setup\.exe$/i.test(asset.name)); return { current: CURRENT, latest, available: newer(latest, CURRENT), name: release.name || `Blocklane ${latest}`, notes: String(release.body || '').slice(0, 4000), releaseUrl: release.html_url, installerUrl: installer?.browser_download_url || null, publishedAt: release.published_at || null }; }
-module.exports = { API, check, newer, versionParts };
+async function check(channel = 'stable') { let release; if (channel === 'stable') release = await requestJson(API); else { const releases = await requestJson(RELEASES_API); release = releases.find(item => !item.draft && (channel === 'development' || item.prerelease)) || releases.find(item => !item.draft); } if (!release) throw new Error('No release is available for this update channel.'); const latest = String(release.tag_name || '').replace(/^v/i, ''); const installer = (release.assets || []).find(asset => /Blocklane-.*-Setup\.exe$/i.test(asset.name)); return { current: CURRENT, latest, available: newer(latest, CURRENT), name: release.name || `Blocklane ${latest}`, notes: String(release.body || '').slice(0, 4000), releaseUrl: release.html_url, installerUrl: installer?.browser_download_url || null, publishedAt: release.published_at || null }; }
+module.exports = { API, RELEASES_API, check, newer, versionParts };

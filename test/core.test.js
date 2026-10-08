@@ -9,19 +9,40 @@ const { Readable } = require('node:stream');
 const network = require('../src/network');
 const mods = require('../src/mods');
 function fakeResponse(bytes, options = {}) { const stream = Readable.from([bytes]); stream.statusCode = options.status || 200; stream.headers = {}; return stream; }
-const { Launcher, allowed, expandArgs, safePath, validateProfile, libraryPlan, legacyArguments, normalizeVersionMetadata, materializeAssets, download, pool, extractNatives } = require('../src/core');
+const { Launcher, allowed, expandArgs, safePath, validateProfile, libraryPlan, legacyArguments, normalizeVersionMetadata, enforceExclusiveFullscreen, materializeAssets, download, pool, extractNatives } = require('../src/core');
 const windows = { name: 'windows', arch: 'x86_64', version: '10.0.22631' };
 const digest = data => crypto.createHash('sha1').update(data).digest('hex');
 const md5 = data => crypto.createHash('md5').update(data).digest('hex');
 async function temp(t) { const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'blocklane-test-')); t.after(() => fs.rm(dir, { recursive: true, force: true })); return dir; }
 
-test('launcher settings persist logging preference', async t => {
+test('launcher settings persist validated preferences', async t => {
   const root = await temp(t), launcher = new Launcher(root); await launcher.init();
   assert.equal((await launcher.snapshot()).settings.loggingEnabled, true);
-  await launcher.saveSettings({ loggingEnabled: false });
+  await launcher.saveSettings({ loggingEnabled: false, autoCheckUpdates: false, launcherVisibility: 'hide', defaultMemory: 8 });
   const restored = new Launcher(root); await restored.init();
   assert.equal((await restored.snapshot()).settings.loggingEnabled, false);
-  await assert.rejects(restored.saveSettings({ loggingEnabled: 'no' }), /Invalid launcher settings/);
+  const saved = (await restored.snapshot()).settings; assert.equal(saved.autoCheckUpdates, false); assert.equal(saved.launcherVisibility, 'hide'); assert.equal(saved.defaultMemory, 8); assert.equal(saved.theme, 'dark');
+  await assert.rejects(restored.saveSettings({ loggingEnabled: true, autoCheckUpdates: true, launcherVisibility: 'close', defaultMemory: 4 }), /Invalid launcher settings/);
+});
+
+test('storage management measures categories and only removes unused versions', async t => {
+  const root = await temp(t), launcher = new Launcher(root); await launcher.init(); launcher.state.profiles.push({ id: 'profile', name: 'Profile', version: '1.21.1', memory: 4, javaPath: 'auto', javaArgs: [], gameArgs: [], loader: 'vanilla', loaderVersion: '' });
+  await fs.mkdir(path.join(root, 'versions', '1.21.1'), { recursive: true }); await fs.writeFile(path.join(root, 'versions', '1.21.1', 'keep.jar'), 'keep');
+  await fs.mkdir(path.join(root, 'versions', 'old'), { recursive: true }); await fs.writeFile(path.join(root, 'versions', 'old', 'remove.jar'), 'remove');
+  await fs.mkdir(path.join(root, 'modpack-cache'), { recursive: true }); await fs.writeFile(path.join(root, 'modpack-cache', 'cached.mrpack'), 'cache');
+  const before = await launcher.storageSummary(); assert.ok(before.totalBytes > 0); assert.deepEqual(before.unusedVersions, ['old']);
+  const versions = await launcher.storageDetails('versions'); assert.equal(versions.find(item => item.key === '1.21.1').protected, true); assert.equal(versions.find(item => item.key === 'old').protected, false);
+  await assert.rejects(launcher.deleteStorageItem('versions', '1.21.1'), /used by a profile/);
+  await launcher.clearStorageCache(); await assert.rejects(fs.access(path.join(root, 'modpack-cache', 'cached.mrpack')));
+  await launcher.removeUnusedVersions(); await fs.access(path.join(root, 'versions', '1.21.1')); await assert.rejects(fs.access(path.join(root, 'versions', 'old')));
+});
+
+test('orphaned instance data can be inspected, recovered, or deleted', async t => {
+  const root = await temp(t), launcher = new Launcher(root); await launcher.init(); launcher.manifest = { latest: { release: '1.21.1' }, versions: [{ id: '1.21.1', type: 'release' }] };
+  const id = '11111111-2222-4333-8444-555555555555', instance = path.join(root, 'instances', id); await fs.mkdir(path.join(instance, 'saves', 'World'), { recursive: true }); await fs.writeFile(path.join(instance, 'saves', 'World', 'level.dat'), 'world');
+  const detail = (await launcher.storageDetails('instances'))[0]; assert.equal(detail.orphan, true); assert.equal(detail.protected, false); assert.equal((await launcher.inspectOrphan(id)).worlds.length, 1);
+  const recovered = await launcher.recoverOrphan(id, 'Recovered world', '1.21.1'); assert.equal(recovered.profiles[0].id, id); assert.equal((await launcher.storageDetails('instances'))[0].protected, true);
+  launcher.state.profiles = []; await launcher.deleteStorageItem('instances', id); await assert.rejects(fs.access(instance));
 });
 
 test('ordered Mojang OS rules and feature flags', () => {
@@ -72,6 +93,17 @@ test('profiles validate RAM, names and version identifiers', () => {
   assert.throws(() => validateProfile({ ...p, memory: 0 }));
   assert.throws(() => validateProfile({ ...p, memory: 4.5 }));
   assert.throws(() => validateProfile({ ...p, name: '' }));
+});
+
+test('exclusive fullscreen is enforced in Minecraft options', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'blocklane-fullscreen-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await fs.writeFile(path.join(root, 'options.txt'), 'fullscreen:false\nexclusiveFullscreen:false\nrenderDistance:12\n');
+  await enforceExclusiveFullscreen(root);
+  let options = await fs.readFile(path.join(root, 'options.txt'), 'utf8');
+  assert.match(options, /^fullscreen:true$/m);
+  assert.match(options, /^exclusiveFullscreen:true$/m);
+  assert.match(options, /^renderDistance:12$/m);
 });
 
 test('library planning filters operating systems and resolves legacy native classifiers', () => {

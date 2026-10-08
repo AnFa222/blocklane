@@ -1,6 +1,8 @@
 # Modpack support
 
-Blocklane can browse Modrinth modpacks or import a local Modrinth `.mrpack` archive. Installing a pack creates an isolated launch profile using the Minecraft and loader versions pinned by `modrinth.index.json`. Fabric, Quilt, Forge, NeoForge, and vanilla packs are supported when the requested loader build exists in its official catalog.
+Blocklane can browse Modrinth modpacks or import a local Modrinth `.mrpack`, Prism Launcher instance ZIP, MultiMC instance ZIP, or self-contained CurseForge ZIP. Installing a pack creates an isolated launch profile using the Minecraft and loader versions pinned by the archive manifest. Fabric, Quilt, Forge, NeoForge, and vanilla packs are supported when the requested loader build exists in its official catalog.
+
+Prism and MultiMC imports copy the files embedded under the exported instance's `.minecraft` directory. CurseForge manifests may refer to downloads only by proprietary CurseForge project and file IDs; those require CurseForge API access. Blocklane imports CurseForge ZIPs whose files are included and rejects archives with unresolved project/file references rather than creating an incomplete profile.
 
 Pack archives are inspected before installation. Blocklane rejects traversal paths, links, duplicate paths, unsupported formats, conflicting loaders, untrusted download hosts, and files without a valid SHA-1. Client files download into a staging directory with bounded concurrency. Overrides and downloaded files are copied into the instance only after every required file succeeds.
 

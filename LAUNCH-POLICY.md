@@ -10,13 +10,13 @@ Reviewed upstream source on 6 October 2026:
 
 Use the 64-bit runtime specified by the selected game's Mojang metadata. Preserve its JVM arguments, native paths, classpath, logging configuration and game arguments. The current bundled Java 25 is for versions requiring Java 25; older versions receive their matching runtime. Do not force every game onto the newest Java.
 
-Keep a 512 MiB initial heap and a 4 GiB default maximum for new vanilla profiles. Existing explicit RAM limits remain unchanged. Extra heap is not an FPS improvement by itself; modded profiles may need different limits. Keep Java's collector defaults rather than adding an unmeasured tuning preset. Neither compared argument builder establishes a universal GC tuning recipe.
+Version 0.4.34 restores the saved 0.4.20 launch policy: initial heap is half the selected maximum rounded up, capped at 2 GiB, with G1GC, ParallelRefProcEnabled, DisableExplicitGC and MaxGCPauseMillis=50. The selected maximum and custom profile arguments remain unchanged. This is a regression rollback, not a verified stutter fix.
 
-Launch Java directly as a separate process with an argument array and the profile instance as its working directory. Paths containing spaces remain single arguments. Do not inject an integration agent or change process priority for vanilla play.
+Use `javaw.exe` from the selected runtime for the Windows game process when it is available. Runtime inspection still uses `java.exe`. Launch Java as a separate process with an argument array and the profile instance as its working directory. Paths containing spaces remain single arguments. Do not inject an integration agent or change process priority for vanilla play.
 
 Exclude `_JAVA_OPTIONS`, `JAVA_TOOL_OPTIONS`, and `JDK_JAVA_OPTIONS` from the child's inherited environment, case-insensitively. This extends Modrinth's isolation principle to all three JVM injection variables so profile settings cannot silently be replaced by a global heap/agent/collector setting. Preserve PATH and ordinary environment variables; never modify the machine's environment.
 
-Continue draining both output streams and writing complete redacted logs to disk. Batch the live UI stream every 250 ms and retain at most 16,000 pending characters. Heavy output therefore cannot cause one renderer update per chunk or unbounded pending UI memory. Flush the final tail when the game exits. Redaction happens before either log destination.
+Preserve Mojang logging configuration and pipe both output streams as in 0.4.20. When launcher logging is enabled, write redacted output to disk and batch live updates every 1,000 ms with at most 4,096 pending characters. Flush the final tail when the game exits. When disabled, drain and discard both streams without saving or displaying them. This setting does not disable Minecraft internal logging.
 
 Blocklane already inherits Mojang's Windows driver arguments when supplied in version metadata; do not duplicate a workaround merely because Prism includes it. The measured game used the NVIDIA GPU.
 
