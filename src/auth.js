@@ -28,6 +28,10 @@ function authError(status, data = {}, url) {
     const xerr = Number.isSafeInteger(data.XErr) ? `; Xbox code ${data.XErr}` : '';
     e.message = `${stage} failed (HTTP ${status}${xerr}). ${e.message}`;
     if (status === 403 && url === URLS.minecraft) e.message = 'Minecraft sign-in failed (HTTP 403). Microsoft and Xbox authentication completed, but Minecraft Services denied access. This launcher application may require Minecraft API approval; this response alone does not confirm the cause.';
+    if (url === URLS.skins && typeof (data.errorMessage || data.message) === 'string') {
+      const detail = (data.errorMessage || data.message).replace(/[\r\n\t]+/g, ' ').trim().slice(0, 240);
+      if (detail) e.message = `${stage} failed (HTTP ${status}). ${detail}`;
+    }
   }
   return e;
 }
@@ -49,7 +53,8 @@ function request(url, options = {}) {
       res.on('close', () => clearTimeout(timer));
       res.on('end', () => {
         try {
-          const data = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          const text = Buffer.concat(chunks).toString('utf8').trim();
+          const data = text ? JSON.parse(text) : {};
           if (res.statusCode < 200 || res.statusCode >= 300) reject(authError(res.statusCode, data, url)); else resolve(data);
         } catch { reject(new Error('The sign-in service returned an invalid response.')); }
       });
@@ -60,11 +65,31 @@ function request(url, options = {}) {
   });
 }
 
+function textureDataUrl(url, signal) {
+  let parsed;
+  try { parsed = new URL(url); } catch { return Promise.resolve(null); }
+  if (parsed.protocol !== 'https:' || parsed.hostname !== 'textures.minecraft.net') return Promise.resolve(null);
+  return new Promise((resolve, reject) => {
+    let timer;
+    const req = https.get(parsed, { signal, agent: false, headers: { Accept: 'image/png' } }, res => {
+      if (res.statusCode !== 200) { res.resume(); return resolve(null); }
+      const chunks = []; let size = 0;
+      res.on('data', chunk => { size += chunk.length; if (size > 1024 * 1024) res.destroy(new Error('Skin texture was too large.')); else chunks.push(chunk); });
+      res.on('error', reject); res.on('close', () => clearTimeout(timer));
+      res.on('end', () => {
+        const bytes = Buffer.concat(chunks);
+        resolve(bytes.length >= 24 && bytes.toString('hex', 0, 8) === '89504e470d0a1a0a' ? `data:image/png;base64,${bytes.toString('base64')}` : null);
+      });
+    });
+    req.on('error', reject); timer = setTimeout(() => req.destroy(new Error('Skin texture request timed out.')), 15000); timer.unref();
+  });
+}
+
 class Accounts {
   constructor(root, secureStorage, options = {}) {
     this.root = root; this.file = path.join(root, 'accounts.enc'); this.secure = secureStorage;
     this.applicationClientId = options.clientId || '';
-    this.request = options.request || request; this.wait = options.wait || sleep; this.now = options.now || Date.now;
+    this.request = options.request || request; this.textureDataUrl = options.textureDataUrl || textureDataUrl; this.wait = options.wait || sleep; this.now = options.now || Date.now;
     this.data = { clientId: options.clientId || '', selected: 'demo', accounts: [] };
     this.pending = null; this.locked = false; this.issue = null; this.sessions = new Map();
   }
@@ -183,7 +208,9 @@ class Accounts {
     }
     const session = await this.session(id, signal), profile = await this.request(URLS.profile, { token: session.accessToken, signal });
     const skin = Array.isArray(profile.skins) ? profile.skins.find(value => value.state === 'ACTIVE') || profile.skins[0] : null;
-    return { accountId: id, type: 'microsoft', variant: skin?.variant === 'SLIM' ? 'slim' : 'classic', url: typeof skin?.url === 'string' ? skin.url : null };
+    let url = null;
+    if (typeof skin?.url === 'string') url = await this.textureDataUrl(skin.url, signal).catch(() => null);
+    return { accountId: id, type: 'microsoft', variant: skin?.variant === 'SLIM' ? 'slim' : 'classic', url };
   }
   async setSkin(id, filename, variant, signal) {
     const account = this.account(id); if (!['classic', 'slim'].includes(variant)) throw new Error('Choose Classic or Slim arms.');
@@ -269,4 +296,4 @@ class Accounts {
     } finally { this.locked = false; }
   }
 }
-module.exports = { Accounts, URLS, DEMO, clientId, authError, request };
+module.exports = { Accounts, URLS, DEMO, clientId, authError, request, textureDataUrl };

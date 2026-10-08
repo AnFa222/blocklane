@@ -284,7 +284,7 @@ async function loadSkins() {
   if (skinAccountId) try { active = await api.accountSkin(skinAccountId); } catch (error) { activeError = error; }
   const skins = await libraryPromise; if (request !== skinLoadRequest) return; skinLibrary = skins;
   summary.replaceChildren();
-  if (active?.url) { const image = document.createElement('img'); image.src = active.url; image.alt = 'Active skin'; summary.append(image); }
+  if (active?.url) { const image = document.createElement('img'); image.src = active.url; image.alt = 'Active skin'; image.addEventListener('error', () => image.remove(), { once: true }); summary.append(image); }
   const account = accounts.find(value => value.id === skinAccountId), copy = el('div');
   copy.append(el('strong', '', account ? `${account.name} · Active skin` : 'No account selected'), el('small', '', activeError ? activeError.message : active ? `${active.variant === 'slim' ? 'Slim' : 'Classic'} arms${active.url ? '' : ' · Default skin'}` : 'Choose an account to apply skins.')); summary.append(copy);
   renderSkinLibrary();

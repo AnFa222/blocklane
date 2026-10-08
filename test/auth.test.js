@@ -44,7 +44,8 @@ async function fixture(t) {
     if (url === URLS.skins) return {};
     throw new Error('Unexpected endpoint');
   };
-  const a = new Accounts(root, cipher, { request, wait: async () => {}, clientId: CLIENT }); await a.init();
+  const textureDataUrl = async url => url === 'https://textures.minecraft.net/texture/example' ? 'data:image/png;base64,dGVzdA==' : null;
+  const a = new Accounts(root, cipher, { request, textureDataUrl, wait: async () => {}, clientId: CLIENT }); await a.init();
   return { a, root, cipher, request, calls, identity: id => identity = id, ownership: value => owned = value, skins: value => profileSkins = value, profileCalls: () => profileCalls };
 }
 
@@ -166,7 +167,7 @@ test('Microsoft account skin uses the official profile and multipart skin endpoi
   f.skins([{ state: 'ACTIVE', variant: 'CLASSIC', url: 'https://textures.minecraft.net/texture/example' }]);
   const file = path.join(f.root, 'steve.png'); await fs.writeFile(file, skinPng(64, 32));
   const saved = await f.a.setSkin(FIRST, file, 'classic');
-  assert.equal(saved.type, 'microsoft'); assert.equal(saved.variant, 'classic'); assert.equal(saved.url, 'https://textures.minecraft.net/texture/example');
+  assert.equal(saved.type, 'microsoft'); assert.equal(saved.variant, 'classic'); assert.equal(saved.url, 'data:image/png;base64,dGVzdA==');
   const upload = f.calls.find(call => call.url === URLS.skins);
   assert.ok(upload); assert.equal(upload.options.token, 'minecraft-access-secret'); assert.match(upload.options.contentType, /^multipart\/form-data; boundary=/);
   assert.ok(Buffer.isBuffer(upload.options.raw));
