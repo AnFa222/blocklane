@@ -1,3 +1,15 @@
+const fs = require('node:fs/promises');
+const path = require('node:path');
+
+// Use the Windows GUI entry point for the game; runtime inspection still uses java.exe.
+async function gameJavaExecutable(executable, platform = process.platform) {
+  if (platform !== 'win32' || path.basename(executable).toLowerCase() !== 'java.exe') return executable;
+  const gui = path.join(path.dirname(executable), 'javaw.exe');
+  try { if ((await fs.stat(gui)).isFile()) return gui; }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  return executable;
+}
+
 // Instance settings and Mojang metadata define the JVM configuration.
 // Preserve normal environment variables, but prevent hidden global JVM flags.
 function gameEnvironment(source = process.env) {
@@ -34,4 +46,4 @@ function liveLogBatch(emit, delay = 250, limit = 16000) {
     flush
   };
 }
-module.exports = { gameEnvironment, jvmMemoryArgs, withoutHeapArgs, liveLogBatch };
+module.exports = { gameJavaExecutable, gameEnvironment, jvmMemoryArgs, withoutHeapArgs, liveLogBatch };

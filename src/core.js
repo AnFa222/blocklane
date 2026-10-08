@@ -11,7 +11,7 @@ const { pipeline } = require('node:stream/promises');
 const { spawn, execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const yauzl = require('yauzl');
-const { gameEnvironment, jvmMemoryArgs, withoutHeapArgs, liveLogBatch } = require('./launch-policy');
+const { gameJavaExecutable, gameEnvironment, jvmMemoryArgs, withoutHeapArgs, liveLogBatch } = require('./launch-policy');
 const launcherVersion = require('../package.json').version;
 const loaders = require('./loaders');
 const mods = require('./mods');
@@ -715,7 +715,8 @@ class Launcher {
         const logDir = path.join(this.root, 'logs'); await fs.mkdir(logDir, { recursive: true });
         log = createWriteStream(path.join(logDir, 'latest-launch.log')); log.on('error', () => {});
       }
-      const child = spawn(javaPath, args, { cwd: gameDir, windowsHide: true, env: gameEnvironment(), stdio: loggingEnabled ? ['ignore', 'pipe', 'pipe'] : 'ignore' });
+      const gameJava = await gameJavaExecutable(javaPath);
+      const child = spawn(gameJava, args, { cwd: gameDir, windowsHide: true, env: gameEnvironment(), stdio: loggingEnabled ? ['ignore', 'pipe', 'pipe'] : 'ignore' });
       this.child = child;
       let liveLog = null;
       if (loggingEnabled) {

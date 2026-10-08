@@ -176,6 +176,9 @@ async function start() {
     dialog.showMessageBoxSync(window, { type: 'info', title: 'Operation in progress', message: launcher.child ? 'Close Minecraft before closing the launcher.' : 'Cancel the installation or wait for it to finish before closing the launcher.' });
   });
   await window.loadURL(page);
+  if (!smoke && process.argv.includes('--launch-selected')) {
+    await launcher.launch(launcher.state.selectedProfile, accounts.list().selected);
+  }
   if (smoke) {
     // Exercise the actual sandboxed renderer and IPC, then save a UI capture.
     const result = await window.webContents.executeJavaScript(`(async () => {

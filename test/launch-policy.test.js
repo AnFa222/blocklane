@@ -1,6 +1,22 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { gameEnvironment, jvmMemoryArgs, withoutHeapArgs, liveLogBatch } = require('../src/launch-policy');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const { gameJavaExecutable, gameEnvironment, jvmMemoryArgs, withoutHeapArgs, liveLogBatch } = require('../src/launch-policy');
+
+test('Windows game launches use the matching javaw without changing custom or non-Windows executables', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'blocklane javaw '));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const java = path.join(dir, 'java.exe'), javaw = path.join(dir, 'javaw.exe');
+  assert.equal(await gameJavaExecutable(java, 'win32'), java);
+  await fs.writeFile(javaw, 'fixture');
+  assert.equal(await gameJavaExecutable(java, 'win32'), javaw);
+  assert.equal(await gameJavaExecutable(java, 'linux'), java);
+  const custom = path.join(dir, 'custom-java.exe');
+  assert.equal(await gameJavaExecutable(custom, 'win32'), custom);
+  assert.equal(await gameJavaExecutable(javaw, 'win32'), javaw);
+});
 
 test('heap sizing is stable and metadata cannot override the selected profile memory', () => {
   assert.deepEqual(jvmMemoryArgs(12).slice(0, 2), ['-Xms2G', '-Xmx12G']);
