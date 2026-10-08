@@ -11,6 +11,13 @@ const updater = require('./updater');
 if (process.platform === 'win32') app.setAppUserModelId('com.blocklane.launcher');
 const smoke = process.argv.includes('--smoke-test');
 const dataOverride = process.env.BLOCKLANE_DATA_DIR;
+const quickPlayArgument = args => {
+  const index = args.indexOf('--quick-play');
+  const id = index >= 0 ? args[index + 1] : null;
+  return typeof id === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,100}$/.test(id) ? id : null;
+};
+let runQuickPlay = null;
+let pendingQuickPlay = quickPlayArgument(process.argv);
 if (dataOverride) app.setPath('userData', path.resolve(dataOverride));
 else if (smoke) app.setPath('userData', path.resolve(__dirname, '..', '.test-data'));
 try { if (JSON.parse(fsSync.readFileSync(path.join(app.getPath('userData'), 'minecraft', 'state.json'), 'utf8')).settings?.hardwareAcceleration === false) app.disableHardwareAcceleration(); } catch {}
@@ -19,7 +26,12 @@ const page = pathToFileURL(path.join(__dirname, 'ui', 'index.html')).href;
 const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
 else {
-  app.on('second-instance', () => { if (window) { if (window.isMinimized()) window.restore(); window.focus(); } });
+  app.on('second-instance', (_event, commandLine) => {
+    if (window) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); }
+    const profileId = quickPlayArgument(commandLine);
+    if (profileId && runQuickPlay) runQuickPlay(profileId);
+    else if (profileId) pendingQuickPlay = profileId;
+  });
   app.whenReady().then(start).catch(error => { console.error(error); app.exit(1); });
 }
 
@@ -37,6 +49,17 @@ async function start() {
   accounts = new Accounts(app.getPath('userData'), safeStorage, { clientId: app.isPackaged ? appConfig.microsoftClientId : process.env.BLOCKLANE_MICROSOFT_CLIENT_ID || appConfig.microsoftClientId });
   await accounts.init();
   launcher.authenticate = (id, signal) => accounts.session(id, signal);
+  runQuickPlay = async profileId => {
+    try {
+      validId(profileId);
+      const profile = launcher.state.profiles.find(item => item.id === profileId);
+      if (!profile) throw new Error('This profile no longer exists.');
+      await launcher.selectProfile(profile.id);
+      await launcher.launch(profile.id, launcher.state.settings.defaultAccount || accounts.list().selected);
+    } catch (error) {
+      if (window && !window.isDestroyed()) window.webContents.send('launcher:quick-play-error', { profile: launcher.state.profiles.find(item => item.id === profileId)?.name || 'profile', message: error.message });
+    }
+  };
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => callback(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
   const handle = (name, fn) => ipcMain.handle(name, async (event, ...args) => {
@@ -103,6 +126,19 @@ async function start() {
   handle('cancel', () => launcher.cancel());
   handle('profile:save', p => launcher.saveProfile(p));
   handle('profile:select', id => launcher.selectProfile(id));
+  handle('profile:quick-play-shortcut', async id => {
+    if (process.platform !== 'win32') throw new Error('Quick-play shortcuts are currently available on Windows.');
+    validId(id);
+    const profile = launcher.profile(id);
+    const baseName = (profile.name || 'Minecraft profile').replace(/[<>:"/\\|?*\u0000-\u001F]/g, '').trim().slice(0, 80) || 'Minecraft profile';
+    const desktop = app.getPath('desktop');
+    let shortcut = path.join(desktop, `Blocklane — ${baseName}.lnk`), suffix = 2;
+    while (await fs.access(shortcut).then(() => true).catch(() => false)) shortcut = path.join(desktop, `Blocklane — ${baseName} (${suffix++}).lnk`);
+    const quote = value => `"${String(value).replace(/"/g, '\\"')}"`;
+    const args = [...(process.defaultApp ? [path.resolve(__dirname, '..')] : []), '--quick-play', profile.id].map(quote).join(' ');
+    if (!shell.writeShortcutLink(shortcut, 'create', { target: process.execPath, args, cwd: path.dirname(process.execPath), icon: process.execPath, iconIndex: 0, description: `Quick-play ${profile.name}` })) throw new Error('Windows could not create the shortcut.');
+    return { path: shortcut, name: profile.name };
+  });
   handle('profile:delete', id => launcher.deleteProfile(id));
   handle('profile:clone', (id, name) => launcher.cloneProfile(id, name));
   handle('profile:worlds', id => launcher.worlds(id));
@@ -202,6 +238,11 @@ async function start() {
   });
   await window.loadURL(page);
   window.webContents.setZoomFactor(launcher.state.settings.uiScale / 100);
+  if (!smoke && pendingQuickPlay) {
+    const profileId = pendingQuickPlay;
+    pendingQuickPlay = null;
+    setTimeout(() => runQuickPlay(profileId), 150);
+  }
   if (smoke) {
     // Exercise the actual sandboxed renderer and IPC, then save a UI capture.
     const result = await window.webContents.executeJavaScript(`(async () => {

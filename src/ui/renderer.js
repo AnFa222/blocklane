@@ -46,6 +46,35 @@ const settingSections = {
 
 function el(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text != null) node.textContent = text; return node; }
 function button(text, className, action) { const node = el('button', className, text); node.addEventListener('click', () => guard(action)); return node; }
+function closeCustomSelects(except = null) { $$('.select-shell.open').forEach(shell => { if (shell !== except) { shell.classList.remove('open'); shell.querySelector('.select-trigger')?.setAttribute('aria-expanded', 'false'); } }); }
+function syncCustomSelect(select) {
+  const shell = select.closest('.select-shell'); if (!shell) return;
+  const trigger = shell.querySelector('.select-trigger'), options = shell.querySelector('.select-options'), selected = select.selectedOptions[0];
+  trigger.querySelector('.select-trigger-label').textContent = selected?.textContent?.trim() || 'Choose an option';
+  trigger.disabled = select.disabled; trigger.setAttribute('aria-disabled', String(select.disabled));
+  options.replaceChildren();
+  for (const option of select.options) {
+    const item = el('button', `select-option${option.selected ? ' selected' : ''}`, option.textContent.trim());
+    item.type = 'button'; item.disabled = option.disabled; item.setAttribute('role', 'option'); item.setAttribute('aria-selected', String(option.selected));
+    item.addEventListener('click', () => { if (option.disabled) return; select.value = option.value; select.dispatchEvent(new Event('change', { bubbles: true })); syncCustomSelect(select); closeCustomSelects(); });
+    options.append(item);
+  }
+}
+function enhanceCustomSelect(select) {
+  if (select.dataset.customSelect === 'true') return syncCustomSelect(select);
+  select.dataset.customSelect = 'true'; select.classList.add('native-select'); select.tabIndex = -1;
+  const shell = el('div', 'select-shell'), trigger = el('button', 'select-trigger'), label = el('span', 'select-trigger-label'), chevron = el('span', 'select-chevron', '⌄'), options = el('div', 'select-options');
+  trigger.type = 'button'; trigger.setAttribute('aria-haspopup', 'listbox'); trigger.setAttribute('aria-expanded', 'false'); trigger.setAttribute('aria-label', select.getAttribute('aria-label') || document.querySelector(`label[for="${select.id}"]`)?.textContent?.trim() || 'Choose an option');
+  options.setAttribute('role', 'listbox'); trigger.append(label, chevron);
+  select.parentNode.insertBefore(shell, select); shell.append(select, trigger, options);
+  trigger.addEventListener('click', () => { const opening = !shell.classList.contains('open'); closeCustomSelects(shell); shell.classList.toggle('open', opening); trigger.setAttribute('aria-expanded', String(opening)); if (opening) syncCustomSelect(select); });
+  trigger.addEventListener('keydown', event => { if (event.key === 'Escape') { closeCustomSelects(); trigger.focus(); } if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') { event.preventDefault(); if (!shell.classList.contains('open')) trigger.click(); } });
+  select.addEventListener('change', () => syncCustomSelect(select)); syncCustomSelect(select);
+}
+function enhanceCustomSelects(root = document) { root.querySelectorAll?.('select').forEach(enhanceCustomSelect); }
+document.addEventListener('click', event => { if (!event.target.closest('.select-shell')) closeCustomSelects(); });
+new MutationObserver(records => { if (records.some(record => record.target instanceof HTMLSelectElement || [...record.addedNodes].some(node => node.nodeType === Node.ELEMENT_NODE && (node.matches?.('select') || node.querySelector?.('select'))))) queueMicrotask(() => enhanceCustomSelects()); }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled'] });
+enhanceCustomSelects();
 function toast(message, error = false) { clearTimeout(toastTimer); $('#toast').textContent = message; $('#toast').className = error ? 'error' : ''; $('#toast').hidden = false; toastTimer = setTimeout(() => $('#toast').hidden = true, error ? 12000 : 4500); }
 function log(message) { if (state.settings?.loggingEnabled === false) return; const box = $('#log'); box.textContent = (box.textContent + `\n[${new Date().toLocaleTimeString()}] ${message}`).slice(-80000); box.scrollTop = box.scrollHeight; }
 async function guard(action) { try { return await action(); } catch (e) { toast(e.message, true); log(e.message); } }
@@ -302,7 +331,7 @@ function renderProfiles() {
     top.append(el('span', 'stat-icon', '▤'), el('small', '', selected ? 'ACTIVE PROFILE' : loaderNames[p.loader || 'vanilla'].toUpperCase()));
     card.append(top, el('h3', '', p.name), el('p', '', `${profileLabel(p)} · ${p.memory} GB RAM`), el('small', '', profileInstalled(p) ? '● Profile installed' : 'Profile needs installation'));
     const actions = el('div', 'profile-card-actions');
-    actions.append(button(selected ? 'Selected' : 'Select profile', selected ? 'quiet' : 'primary', async () => { state = await api.selectProfile(p.id); render(); }), button('Worlds', 'quiet', () => openWorldManager(p)), button('Edit', 'quiet', () => openProfile(p)), button('Clone', 'quiet', async () => { state = await api.cloneProfile(p.id, `${p.name} copy`); render(); toast('Profile cloned with its worlds and settings.'); }), button('Delete profile', 'quiet', () => confirmDeleteProfile(p)));
+    actions.append(button(selected ? 'Selected' : 'Select profile', selected ? 'quiet' : 'primary', async () => { state = await api.selectProfile(p.id); render(); }), button('Quick-play shortcut', 'quiet', async () => { const shortcut = await api.createQuickPlayShortcut(p.id); toast(`Desktop shortcut created for ${shortcut.name}.`); }), button('Worlds', 'quiet', () => openWorldManager(p)), button('Edit', 'quiet', () => openProfile(p)), button('Clone', 'quiet', async () => { state = await api.cloneProfile(p.id, `${p.name} copy`); render(); toast('Profile cloned with its worlds and settings.'); }), button('Delete profile', 'quiet', () => confirmDeleteProfile(p)));
     if ((p.loader || 'vanilla') !== 'vanilla') actions.append(button('Install / repair', 'quiet', () => installSelectedProfile(p)), button('Mods folder', 'quiet', () => api.openMods(p.id)));
     if (busy || running) actions.querySelectorAll('button').forEach(b => b.disabled = true);
     card.append(actions); grid.append(card);
@@ -631,6 +660,7 @@ api.on('game-start', () => { running = true; render(); });
 api.on('game-exit', ({ code }) => { running = false; render(); log(`Minecraft exited (code ${code}).`); if (code !== 0) toast('Minecraft closed unexpectedly. Open Activity for the game log.', true); });
 api.on('accounts-changed', value => { accountState = value; if (!value.pending) $('#login-dialog').close(); render(); });
 api.on('auth-error', message => { $('#login-dialog').close(); toast(message, true); });
+api.on('quick-play-error', ({ profile, message }) => toast(`Could not quick-play ${profile}: ${message}`, true));
 $('#active-account').addEventListener('change', () => guard(async () => { accountState = await api.selectAccount($('#active-account').value); render(); }));
 $('#add-account').addEventListener('click', () => guard(async () => {
   if (!accountState.configured) return;

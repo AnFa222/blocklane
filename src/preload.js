@@ -24,7 +24,7 @@ contextBridge.exposeInMainWorld('launcher', {
   listShaders: profileId => invoke('shaders:list', profileId), installShader: (profileId, projectId) => invoke('shaders:install', profileId, projectId),
   enableShader: (profileId, projectId, enabled) => invoke('shaders:enable', profileId, projectId, enabled), removeShader: (profileId, projectId) => invoke('shaders:remove', profileId, projectId),
   searchResourcepacks: (profileId, query, offset = 0) => invoke('resourcepacks:search', profileId, query, offset), listResourcepacks: profileId => invoke('resourcepacks:list', profileId), installResourcepack: (profileId, projectId) => invoke('resourcepacks:install', profileId, projectId), enableResourcepack: (profileId, projectId, enabled) => invoke('resourcepacks:enable', profileId, projectId, enabled), removeResourcepack: (profileId, projectId) => invoke('resourcepacks:remove', profileId, projectId),
-  saveProfile: p => invoke('profile:save', p), selectProfile: id => invoke('profile:select', id), deleteProfile: id => invoke('profile:delete', id),
+  saveProfile: p => invoke('profile:save', p), selectProfile: id => invoke('profile:select', id), createQuickPlayShortcut: id => invoke('profile:quick-play-shortcut', id), deleteProfile: id => invoke('profile:delete', id),
   cloneProfile: (id, name) => invoke('profile:clone', id, name), listWorlds: id => invoke('profile:worlds', id), transferWorlds: (sourceId, destinationId, names, move) => invoke('profile:world-transfer', sourceId, destinationId, names, move), deleteWorlds: (id, names) => invoke('profile:world-delete', id, names), importDefaultWorlds: id => invoke('profile:world-import-default', id), importWorldFolder: id => invoke('profile:world-import-folder', id), importWorldZip: id => invoke('profile:world-import-zip', id), backupWorlds: (id, names, name) => invoke('profile:world-backup', id, names, name), backupProfile: (id, name) => invoke('profile:backup', id, name), listBackups: id => invoke('profile:backups', id), restoreBackup: (id, backupId, worlds) => invoke('profile:restore-backup', id, backupId, worlds), deleteBackup: (id, backupId) => invoke('profile:delete-backup', id, backupId), listScreenshots: id => invoke('profile:screenshots', id), exportScreenshot: (id, filename) => invoke('screenshots:export', id, filename), profileServers: (id, servers) => invoke('profile:servers', id, servers), openBackups: id => invoke('folder:backups', id), openScreenshots: id => invoke('folder:screenshots', id), openCrashes: id => invoke('folder:crashes', id),
   removeVersion: id => invoke('version:remove', id), launch: id => invoke('launch', id), launchServer: (id, address) => invoke('server:launch', id, address),
   accounts: () => invoke('accounts:list'),
@@ -36,7 +36,7 @@ contextBridge.exposeInMainWorld('launcher', {
   inspectJava: executable => invoke('java:inspect', executable), browseJava: () => invoke('java:browse'), openFolder: () => invoke('folder:open'),
   checkUpdates: () => invoke('updates:check'), openUpdate: url => invoke('updates:open', url),
   on: (event, callback) => {
-    if (!['progress', 'content-progress', 'log', 'game-start', 'game-exit', 'accounts-changed', 'auth-error'].includes(event)) return;
+    if (!['progress', 'content-progress', 'log', 'game-start', 'game-exit', 'accounts-changed', 'auth-error', 'quick-play-error'].includes(event)) return;
     const handler = (_, payload) => callback(payload);
     ipcRenderer.on(`launcher:${event}`, handler);
     return () => ipcRenderer.removeListener(`launcher:${event}`, handler);
