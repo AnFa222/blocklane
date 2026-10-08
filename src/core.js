@@ -21,6 +21,7 @@ const modpacks = require('./modpacks');
 const worlds = require('./worlds');
 const modpackExport = require('./modpack-export');
 const customPacks = require('./custom-packs');
+const contentImport = require('./content-import');
 const LOCAL_SKIN_MOD = 'idMHQ4n2';
 
 const MANIFEST = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json';
@@ -488,6 +489,7 @@ class Launcher {
     finally { this.busy = false; this.controller = null; }
     return this.modList(profileId);
   }
+  async importContent(profileId, kind, files) { if (this.child || this.working) throw new Error('Wait for the current operation or game to finish.'); const profile = this.profile(profileId); return { imported: await contentImport.importFiles(path.join(this.root, 'instances', profile.id), kind, files) }; }
   async shaderStatus(profileId) { const p = this.modProfile(profileId); return shaders.adapter(p, await this.modList(profileId)); }
   async shaderSearch(profileId, query = '', offset = 0) { const p = this.modProfile(profileId), selected = await this.shaderStatus(profileId); return shaders.search(p, selected, query, offset, this.loaderIO()); }
   async shaderList(profileId) { const p = this.modProfile(profileId); return shaders.list(p, this.shaderpacksDir(p), this.loaderIO()); }

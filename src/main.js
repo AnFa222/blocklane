@@ -49,6 +49,7 @@ async function start() {
   handle('mods:remove', (profileId, projectId) => launcher.modRemove(profileId, projectId));
   handle('mods:updates', profileId => launcher.modUpdates(profileId));
   handle('mods:update-all', profileId => launcher.modUpdateAll(profileId));
+  handle('content:import', async (profileId, kind) => { const settings = { mod: { title: 'Import mods', name: 'Java mod', extensions: ['jar'] }, shader: { title: 'Import shader packs', name: 'Shader pack', extensions: ['zip'] }, resourcepack: { title: 'Import resource packs', name: 'Resource pack', extensions: ['zip'] } }[kind]; if (!settings) throw new Error('Unsupported import type.'); const result = await dialog.showOpenDialog(window, { title: settings.title, properties: ['openFile', 'multiSelections'], filters: [{ name: settings.name, extensions: settings.extensions }] }); return result.canceled ? null : launcher.importContent(profileId, kind, result.filePaths); });
   handle('modpacks:search', (query, offset) => launcher.modpackSearch(query, offset));
   handle('modpacks:details', projectId => launcher.modpackDetails(projectId));
   handle('modpacks:list', () => launcher.modpackList());

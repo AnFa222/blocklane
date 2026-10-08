@@ -78,6 +78,7 @@ function renderMods() {
   $('#mod-search').placeholder = shaders ? `Search ${shaderAdapter.label}-compatible shader packs…` : packs ? 'Search compatible resource packs…' : 'Search compatible mods…';
   $('#library-installed-title').textContent = shaders ? 'Installed shader packs' : packs ? 'Installed resource packs' : 'Installed'; $('#library-discover-title').textContent = shaders ? 'Discover shader packs' : packs ? 'Discover resource packs' : 'Discover';
   $('#check-mod-updates').hidden = shaders || packs; $('#mod-update-banner').hidden = shaders || packs || !modUpdates.length; $('#open-mods-folder').textContent = shaders ? 'Shaderpacks folder' : packs ? 'Resourcepacks folder' : 'Mods folder';
+  $('#import-library-files').textContent = shaders ? 'Import shaders' : packs ? 'Import resource packs' : 'Import mods';
   const installedList = $('#installed-mods'); installedList.replaceChildren();
   const managed = current?.installed || [], local = current?.local || [];
   $('#nav-mods').textContent = managed.length; $('#mod-count').textContent = `${managed.length} managed${local.length ? ` · ${local.length} local` : ''}`;
@@ -402,6 +403,7 @@ $('#cancel-missing-dependency').addEventListener('click', closeMissingDependency
 $('#missing-dependency-dialog').addEventListener('cancel', event => { event.preventDefault(); closeMissingDependency(); });
 $('#install-anyway').addEventListener('click', () => { const choice = pendingDependencyInstall; pendingDependencyInstall = null; $('#missing-dependency-dialog').close(); if (choice) guard(choice.install); showNextDependencyWarning(); });
 $('#open-mods-folder').addEventListener('click', () => guard(() => libraryTab === 'shaders' ? api.openShaders(selectedModProfile().id) : libraryTab === 'resourcepacks' ? api.openResourcepacks(selectedModProfile().id) : api.openMods(selectedModProfile().id)));
+$('#import-library-files').addEventListener('click', () => guard(async () => { const profile = selectedModProfile(), kind = libraryTab === 'shaders' ? 'shader' : libraryTab === 'resourcepacks' ? 'resourcepack' : 'mod', result = await api.importContent(profile.id, kind); if (!result) return; await loadModsView(); toast(`${result.imported.length} ${kind === 'resourcepack' ? 'resource pack' : kind}${result.imported.length === 1 ? '' : 's'} imported.`); }));
 $('#mods-create-profile').addEventListener('click', () => openProfile());
 $('#check-mod-updates').addEventListener('click', () => guard(async () => { modUpdates = await api.modUpdates(selectedModProfile().id); renderMods(); if (!modUpdates.length) toast('All managed mods are up to date.'); }));
 $('#update-all-mods').addEventListener('click', () => guard(() => runModTask(null, () => api.updateAllMods(selectedModProfile().id))));

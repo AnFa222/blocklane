@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('launcher', {
   enableMod: (profileId, projectId, enabled) => invoke('mods:enable', profileId, projectId, enabled),
   removeMod: (profileId, projectId) => invoke('mods:remove', profileId, projectId),
   modUpdates: profileId => invoke('mods:updates', profileId), updateAllMods: profileId => invoke('mods:update-all', profileId),
+  importContent: (profileId, kind) => invoke('content:import', profileId, kind),
   searchModpacks: (query, offset = 0) => invoke('modpacks:search', query, offset), modpackDetails: projectId => invoke('modpacks:details', projectId),
   listModpacks: () => invoke('modpacks:list'), installModpack: projectId => invoke('modpacks:install', projectId), importModpack: () => invoke('modpacks:import'), updateModpack: profileId => invoke('modpacks:update', profileId), removeModpack: profileId => invoke('modpacks:remove', profileId),
   listCustomPacks: () => invoke('custom-packs:list'), createCustomPack: input => invoke('custom-packs:create', input), deleteCustomPack: id => invoke('custom-packs:delete', id), exportCustomPack: id => invoke('custom-packs:export', id), openCustomPackFolder: id => invoke('custom-packs:folder', id),
