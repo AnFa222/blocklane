@@ -5,7 +5,7 @@ const invoke = async (channel, ...args) => {
   return result.data;
 };
 contextBridge.exposeInMainWorld('launcher', {
-  state: () => invoke('state'), catalog: refresh => invoke('catalog', refresh),
+  state: () => invoke('state'), saveSettings: settings => invoke('settings:save', settings), catalog: refresh => invoke('catalog', refresh),
   install: id => invoke('install', id), cancel: () => invoke('cancel'),
   installProfile: id => invoke('profile:install', id), loaderVersions: (loader, version) => invoke('loaders:versions', loader, version),
   openMods: id => invoke('folder:mods', id), openShaders: id => invoke('folder:shaderpacks', id), openResourcepacks: id => invoke('folder:resourcepacks', id),

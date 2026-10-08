@@ -36,6 +36,7 @@ async function start() {
     catch (error) { return { ok: false, error: error.message, code: typeof error.code === 'string' ? error.code : null }; }
   });
   handle('state', () => launcher.snapshot());
+  handle('settings:save', settings => launcher.saveSettings(settings));
   handle('catalog', refresh => launcher.catalog(Boolean(refresh)));
   handle('install', id => launcher.install(id));
   handle('profile:install', id => launcher.installProfile(id));

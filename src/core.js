@@ -296,6 +296,7 @@ class Launcher {
   async init() {
     await fs.mkdir(this.root, { recursive: true });
     this.state = await readJson(path.join(this.root, 'state.json'), { profiles: [], selectedProfile: null });
+    this.state.settings = { loggingEnabled: true, ...(this.state.settings || {}) };
     return this.snapshot();
   }
   async snapshot() {
@@ -308,6 +309,11 @@ class Launcher {
     return { ...this.state, installed, root: this.root, busy: this.working, downloads: this.contentTasks.size, running: Boolean(this.child) };
   }
   async persist() { await atomicJson(path.join(this.root, 'state.json'), this.state); return this.snapshot(); }
+  async saveSettings(input) {
+    if (!input || typeof input.loggingEnabled !== 'boolean') throw new Error('Invalid launcher settings.');
+    this.state.settings = { ...this.state.settings, loggingEnabled: input.loggingEnabled };
+    return this.persist();
+  }
   async catalog(refresh = false) {
     if (this.manifest && !refresh) return { ...this.manifest, cached: Boolean(this.manifestCached) };
     try {
@@ -699,25 +705,27 @@ class Launcher {
       };
       const features = { is_demo_user: identity.demo, has_custom_resolution: true };
       const jvm = withoutHeapArgs(expandArgs(meta.arguments.jvm, values, features));
-      if (meta.logging?.client) jvm.push(meta.logging.client.argument.replace('${path}', safePath(path.join(this.root, 'assets', 'log_configs'), meta.logging.client.file.id)));
+      const loggingEnabled = this.state.settings?.loggingEnabled !== false;
+      if (loggingEnabled && meta.logging?.client) jvm.push(meta.logging.client.argument.replace('${path}', safePath(path.join(this.root, 'assets', 'log_configs'), meta.logging.client.file.id)));
       const game = expandArgs(meta.arguments.game, values, features);
       if (identity.demo && !game.includes('--demo')) game.push('--demo');
       const args = [...jvmMemoryArgs(p.memory, java.major, p.javaArgs || []), ...(p.javaArgs || []), ...jvm, meta.mainClass, ...game, ...(launchGameArgs || p.gameArgs || [])];
-      const logDir = path.join(this.root, 'logs');
-      await fs.mkdir(logDir, { recursive: true });
-      const log = createWriteStream(path.join(logDir, 'latest-launch.log'));
-      log.on('error', () => {});
-      const child = spawn(javaPath, args, { cwd: gameDir, windowsHide: true, env: gameEnvironment(), stdio: ['ignore', 'pipe', 'pipe'] });
+      let log = null;
+      if (loggingEnabled) {
+        const logDir = path.join(this.root, 'logs'); await fs.mkdir(logDir, { recursive: true });
+        log = createWriteStream(path.join(logDir, 'latest-launch.log')); log.on('error', () => {});
+      }
+      const child = spawn(javaPath, args, { cwd: gameDir, windowsHide: true, env: gameEnvironment(), stdio: loggingEnabled ? ['ignore', 'pipe', 'pipe'] : 'ignore' });
       this.child = child;
-      const stdout = child.stdout.pipe(redactStream(identity.accessToken));
-      const stderr = child.stderr.pipe(redactStream(identity.accessToken));
-      stdout.pipe(log, { end: false }); stderr.pipe(log, { end: false });
-      // Game output is written losslessly to disk above. Keep renderer updates
-      // sparse and small so a verbose vanilla client cannot compete with the
-      // game for the main process event loop.
-      const liveLog = liveLogBatch(text => this.emit('log', text), 1000, 4096);
-      stdout.on('data', liveLog.push); stderr.on('data', liveLog.push);
-      child.on('close', code => { liveLog.flush(); log.end(); this.child = null; this.emit('game-exit', { code }); });
+      let liveLog = null;
+      if (loggingEnabled) {
+        const stdout = child.stdout.pipe(redactStream(identity.accessToken));
+        const stderr = child.stderr.pipe(redactStream(identity.accessToken));
+        stdout.pipe(log, { end: false }); stderr.pipe(log, { end: false });
+        liveLog = liveLogBatch(text => this.emit('log', text), 1000, 4096);
+        stdout.on('data', liveLog.push); stderr.on('data', liveLog.push);
+      }
+      child.on('close', code => { liveLog?.flush(); log?.end(); this.child = null; this.emit('game-exit', { code }); });
       await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
       this.emit('game-start', { version: p.version });
       return { launched: true };

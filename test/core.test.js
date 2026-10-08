@@ -15,6 +15,15 @@ const digest = data => crypto.createHash('sha1').update(data).digest('hex');
 const md5 = data => crypto.createHash('md5').update(data).digest('hex');
 async function temp(t) { const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'blocklane-test-')); t.after(() => fs.rm(dir, { recursive: true, force: true })); return dir; }
 
+test('launcher settings persist logging preference', async t => {
+  const root = await temp(t), launcher = new Launcher(root); await launcher.init();
+  assert.equal((await launcher.snapshot()).settings.loggingEnabled, true);
+  await launcher.saveSettings({ loggingEnabled: false });
+  const restored = new Launcher(root); await restored.init();
+  assert.equal((await restored.snapshot()).settings.loggingEnabled, false);
+  await assert.rejects(restored.saveSettings({ loggingEnabled: 'no' }), /Invalid launcher settings/);
+});
+
 test('ordered Mojang OS rules and feature flags', () => {
   assert.equal(allowed(undefined), true);
   assert.equal(allowed([{ action: 'allow' }, { action: 'disallow', os: { name: 'windows' } }], {}, windows), false);

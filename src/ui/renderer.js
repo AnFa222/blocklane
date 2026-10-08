@@ -22,7 +22,7 @@ const loaderNames = { vanilla: 'Vanilla', fabric: 'Fabric', quilt: 'Quilt', forg
 function el(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text != null) node.textContent = text; return node; }
 function button(text, className, action) { const node = el('button', className, text); node.addEventListener('click', () => guard(action)); return node; }
 function toast(message, error = false) { clearTimeout(toastTimer); $('#toast').textContent = message; $('#toast').className = error ? 'error' : ''; $('#toast').hidden = false; toastTimer = setTimeout(() => $('#toast').hidden = true, error ? 12000 : 4500); }
-function log(message) { const box = $('#log'); box.textContent = (box.textContent + `\n[${new Date().toLocaleTimeString()}] ${message}`).slice(-80000); box.scrollTop = box.scrollHeight; }
+function log(message) { if (state.settings?.loggingEnabled === false) return; const box = $('#log'); box.textContent = (box.textContent + `\n[${new Date().toLocaleTimeString()}] ${message}`).slice(-80000); box.scrollTop = box.scrollHeight; }
 async function guard(action) { try { return await action(); } catch (e) { toast(e.message, true); log(e.message); } }
 function navigate(view) { $$('.view').forEach(n => n.classList.toggle('active', n.id === `view-${view}`)); $$('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view)); $('#page-title').textContent = view[0].toUpperCase() + view.slice(1); if (view === 'mods') guard(loadModsView); if (view === 'modpacks') guard(loadModpacks); if (view === 'backups') guard(loadBackups); if (view === 'screenshots') guard(loadScreenshots); if (view === 'skins') guard(loadSkins); }
 function installed(id) { return state.installed.find(v => v.id === id); }
@@ -33,6 +33,7 @@ function supported(v) { return ['release', 'snapshot', 'old_beta', 'old_alpha'].
 function versionTypeLabel(type) { return ({ release: 'release', snapshot: 'snapshot', old_beta: 'old beta', old_alpha: 'old alpha' })[type] || type; }
 
 function render() {
+  $('#setting-logging').checked = state.settings?.loggingEnabled !== false;
   $('#nav-installed').textContent = state.installed.length;
   $('#stat-installed').textContent = state.installed.length;
   $('#stat-profiles').textContent = state.profiles.length;
@@ -507,6 +508,7 @@ $('#play-button').addEventListener('click', () => guard(async () => {
 }));
 $('#cancel-install').addEventListener('click', () => guard(async () => { await api.cancel(); $('#cancel-install').disabled = true; $('#download-title').textContent = 'Cancelling…'; }));
 $('#clear-log').addEventListener('click', () => $('#log').textContent = 'Activity view cleared. Game logs remain in the launcher folder.\n');
+$('#setting-logging').addEventListener('change', event => guard(async () => { state = await api.saveSettings({ loggingEnabled: event.target.checked }); $('#log').textContent = event.target.checked ? 'Game logging enabled. New launches will appear here.\n' : 'Logging disabled. New game launches will discard all output.\n'; render(); toast(event.target.checked ? 'Logging enabled.' : 'All game logging disabled.'); }));
 for (const selector of ['#close-dialog', '#cancel-dialog']) $(selector).addEventListener('click', () => $('#profile-dialog').close());
 $('#profile-form').addEventListener('submit', async event => {
   if (loaderLoading) { event.preventDefault(); return; }

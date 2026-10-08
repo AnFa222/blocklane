@@ -20,8 +20,9 @@
       <button class="nav-item" data-view="skins"><span>♟</span>Skins</button>
       <button class="nav-item" data-view="accounts"><span>♙</span>Accounts</button>
       <button class="nav-item" data-view="activity"><span>⌁</span>Activity</button>
+      <button class="nav-item" data-view="settings"><span>⚙</span>Settings</button>
     </nav>
-    <div class="sidebar-bottom"><div class="edition"><span class="status-dot"></span> Java Edition <span class="muted">/ Windows</span></div><button class="account account-button" data-go="accounts"><div class="avatar" id="account-avatar">P</div><div><span id="sidebar-account">Demo player</span><small>Switch or add accounts</small></div></button><div class="build">BLOCKLANE <span>v0.4.16 · ALPHA</span></div></div>
+    <div class="sidebar-bottom"><div class="edition"><span class="status-dot"></span> Java Edition <span class="muted">/ Windows</span></div><button class="account account-button" data-go="accounts"><div class="avatar" id="account-avatar">P</div><div><span id="sidebar-account">Demo player</span><small>Switch or add accounts</small></div></button><div class="build">BLOCKLANE <span>v0.4.32 · ALPHA</span></div></div>
   </aside>
   <main>
     <header><div class="breadcrumb">Workspace <span>/</span> <strong id="page-title">Play</strong></div><div class="launch-actions"><button class="quiet small" id="check-updates">Check for updates</button><button class="quiet small" id="open-folder">↗ &nbsp; Launcher folder</button></div></header>
@@ -78,6 +79,10 @@
       <section id="view-activity" class="view">
         <div class="heading heading-row"><div><div class="eyebrow">UNDER THE HOOD</div><h1>Activity</h1><p>Installation updates and output from your latest game session.</p></div><button id="clear-log" class="quiet">Clear view</button></div><pre id="log" aria-label="Launcher activity">Welcome to Blocklane. Ready when you are.
 </pre>
+      </section>
+      <section id="view-settings" class="view">
+        <div class="heading"><div class="eyebrow">LAUNCHER PREFERENCES</div><h1>Settings</h1><p>Control how Blocklane behaves across every profile.</p></div>
+        <div class="settings-list"><label class="setting-card" for="setting-logging"><div><strong>Game logging</strong><p>Capture Minecraft output in Activity and write <code>latest-launch.log</code>. Disable this to discard all game output and omit Minecraft's logging configuration.</p></div><input id="setting-logging" type="checkbox" checked></label></div>
       </section>
     </div>
     <footer><span><span class="status-dot" id="connection-dot"></span><span id="connection-label">Connecting to Mojang</span></span><span>Independent launcher · Not affiliated with Mojang or Microsoft</span></footer>
