@@ -3,7 +3,10 @@ const assert = require('node:assert/strict');
 const { gameEnvironment, jvmMemoryArgs, withoutHeapArgs, liveLogBatch } = require('../src/launch-policy');
 
 test('heap sizing is stable and metadata cannot override the selected profile memory', () => {
-  assert.deepEqual(jvmMemoryArgs(12).slice(0, 2), ['-Xms2G', '-Xmx12G']);
+  assert.deepEqual(jvmMemoryArgs(12).slice(0, 2), ['-Xms12G', '-Xmx12G']);
+  assert.ok(jvmMemoryArgs(4, 25).includes('-XX:+UseZGC'));
+  assert.ok(jvmMemoryArgs(4, 8).includes('-XX:+UseG1GC'));
+  assert.deepEqual(jvmMemoryArgs(4, 25, ['-XX:+UseG1GC']), ['-Xms4G', '-Xmx4G']);
   assert.deepEqual(withoutHeapArgs(['-cp', 'x', '-Xmx1G', '-Xms256M']), ['-cp', 'x']);
 });
 

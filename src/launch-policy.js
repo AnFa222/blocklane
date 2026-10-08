@@ -6,12 +6,14 @@ function gameEnvironment(source = process.env) {
 }
 
 // Keep heap sizing deterministic across vanilla and loader-generated metadata.
-// A small initial heap causes periodic growth pauses while the client is loading
-// chunks and textures. Start at half the selected maximum, capped at 2 GiB.
-function jvmMemoryArgs(memory) {
+// Modern clients use ZGC so chunk generation does not cause visible stop-the-world
+// pauses. A fixed heap also removes periodic heap-growth stalls while moving.
+function jvmMemoryArgs(memory, javaMajor = 21, customArgs = []) {
   const max = Math.max(1, Number(memory) || 4);
-  const initial = Math.min(2, Math.max(1, Math.ceil(max / 2)));
-  return [`-Xms${initial}G`, `-Xmx${max}G`, '-XX:+UseG1GC', '-XX:+ParallelRefProcEnabled', '-XX:+DisableExplicitGC', '-XX:MaxGCPauseMillis=50'];
+  const args = [`-Xms${max}G`, `-Xmx${max}G`];
+  if (customArgs.some(arg => /^-XX:[+-]Use[A-Za-z0-9]+GC$/.test(arg))) return args;
+  if (javaMajor >= 17) return [...args, '-XX:+UseZGC', '-XX:+DisableExplicitGC'];
+  return [...args, '-XX:+UseG1GC', '-XX:+ParallelRefProcEnabled', '-XX:+DisableExplicitGC', '-XX:MaxGCPauseMillis=50'];
 }
 
 function withoutHeapArgs(args) {

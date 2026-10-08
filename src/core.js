@@ -702,7 +702,7 @@ class Launcher {
       if (meta.logging?.client) jvm.push(meta.logging.client.argument.replace('${path}', safePath(path.join(this.root, 'assets', 'log_configs'), meta.logging.client.file.id)));
       const game = expandArgs(meta.arguments.game, values, features);
       if (identity.demo && !game.includes('--demo')) game.push('--demo');
-      const args = [...jvmMemoryArgs(p.memory), ...(p.javaArgs || []), ...jvm, meta.mainClass, ...game, ...(launchGameArgs || p.gameArgs || [])];
+      const args = [...jvmMemoryArgs(p.memory, java.major, p.javaArgs || []), ...(p.javaArgs || []), ...jvm, meta.mainClass, ...game, ...(launchGameArgs || p.gameArgs || [])];
       const logDir = path.join(this.root, 'logs');
       await fs.mkdir(logDir, { recursive: true });
       const log = createWriteStream(path.join(logDir, 'latest-launch.log'));
