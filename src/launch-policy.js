@@ -5,15 +5,13 @@ function gameEnvironment(source = process.env) {
     !['_JAVA_OPTIONS', 'JAVA_TOOL_OPTIONS', 'JDK_JAVA_OPTIONS'].includes(name.toUpperCase())));
 }
 
-// Keep heap sizing deterministic across vanilla and loader-generated metadata.
-// Modern clients use ZGC so chunk generation does not cause visible stop-the-world
-// pauses. A fixed heap also removes periodic heap-growth stalls while moving.
+// Match the official launcher presets while substituting the profile's RAM cap.
 function jvmMemoryArgs(memory, javaMajor = 21, customArgs = []) {
   const max = Math.max(1, Number(memory) || 4);
-  const args = [`-Xms${max}G`, `-Xmx${max}G`];
+  const args = [`-Xms${Math.min(2, max)}G`, `-Xmx${max}G`];
   if (customArgs.some(arg => /^-XX:[+-]Use[A-Za-z0-9]+GC$/.test(arg))) return args;
-  if (javaMajor >= 17) return [...args, '-XX:+UseZGC', '-XX:+DisableExplicitGC'];
-  return [...args, '-XX:+UseG1GC', '-XX:+ParallelRefProcEnabled', '-XX:+DisableExplicitGC', '-XX:MaxGCPauseMillis=50'];
+  if (javaMajor >= 25) return [...args, '-XX:+UseCompactObjectHeaders', '-XX:+AlwaysPreTouch', '-XX:+UseStringDeduplication', '-XX:+UseZGC'];
+  return [...args, '-XX:+UnlockExperimentalVMOptions', '-XX:+UseG1GC', '-XX:G1NewSizePercent=20', '-XX:G1ReservePercent=20', '-XX:MaxGCPauseMillis=50', '-XX:G1HeapRegionSize=32M'];
 }
 
 function withoutHeapArgs(args) {
