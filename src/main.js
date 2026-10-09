@@ -105,12 +105,14 @@ async function start() {
   handle('modpacks:remove', profileId => launcher.modpackRemove(profileId));
   handle('custom-packs:list', () => launcher.customPackList());
   handle('custom-packs:create', input => launcher.customPackCreate(input));
+  handle('custom-packs:prepare-profile', id => launcher.customPackPrepareProfile(id));
   handle('custom-packs:delete', id => launcher.customPackDelete(id));
   handle('custom-packs:export', async id => { const pack = (await launcher.customPackList()).find(item => item.id === id); if (!pack) throw new Error('Custom pack does not exist.'); const safeName = pack.name.replace(/[^a-zA-Z0-9._ -]/g, '').trim().slice(0, 80) || 'custom-modpack'; const result = await dialog.showSaveDialog(window, { title: 'Export custom modpack', defaultPath: `${safeName}-${pack.versionId}.mrpack`, filters: [{ name: 'Modrinth modpack', extensions: ['mrpack'] }] }); return result.canceled || !result.filePath ? null : launcher.customPackExport(id, result.filePath); });
   handle('custom-packs:folder', async id => { const pack = (await launcher.customPackList()).find(item => item.id === id); if (!pack) throw new Error('Custom pack does not exist.'); const folder = path.join(launcher.root, 'custom-packs', pack.id, 'instance'); await fs.mkdir(folder, { recursive: true }); const error = await shell.openPath(folder); if (error) throw new Error(error); });
   handle('custom-packs:mods-search', (id, query, offset) => launcher.customPackModSearch(id, query, offset));
   handle('custom-packs:mods-list', id => launcher.customPackModList(id));
   handle('custom-packs:mods-install', (id, projectId) => launcher.customPackModInstall(id, projectId));
+  handle('custom-packs:mods-import', async id => { const result = await dialog.showOpenDialog(window, { title: 'Import mods into custom pack', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Minecraft mod', extensions: ['jar'] }] }); return result.canceled ? null : launcher.customPackModImport(id, result.filePaths); });
   handle('custom-packs:mods-remove', (id, projectId) => launcher.customPackModRemove(id, projectId));
   handle('shaders:status', profileId => launcher.shaderStatus(profileId));
   handle('shaders:search', (profileId, query, offset) => launcher.shaderSearch(profileId, query, offset));
@@ -166,6 +168,7 @@ async function start() {
   const notifyAccounts = () => { if (window && !window.isDestroyed()) window.webContents.send('launcher:accounts-changed', accounts.list()); };
   handle('accounts:list', () => accounts.list());
   handle('clipboard:device-code', code => { if (typeof code !== 'string' || !/^[A-Z0-9-]{4,32}$/.test(code)) throw new Error('No valid Microsoft sign-in code is ready to copy.'); clipboard.writeText(code); return true; });
+  handle('clipboard:text', text => { if (typeof text !== 'string' || text.length > 1024 * 1024) throw new Error('This text cannot be copied.'); clipboard.writeText(text); return true; });
   handle('accounts:select', id => { idle(); return accounts.select(id); });
   handle('accounts:local', name => { idle(); return accounts.createLocal(name); });
   handle('accounts:remove', id => { idle(); return accounts.remove(id); });
@@ -192,6 +195,26 @@ async function start() {
     return shell.openExternal(accounts.pending.uri);
   });
   handle('java:inspect', executable => inspectJava(executable || 'java'));
+  handle('java:manager', async () => {
+    const root = path.join(launcher.root, 'runtimes');
+    const entries = await fs.readdir(root, { withFileTypes: true }).catch(() => []);
+    const runtimes = [];
+    for (const entry of entries.filter(item => item.isDirectory())) {
+      const folder = path.join(root, entry.name), marker = await fs.readFile(path.join(folder, 'installed.json'), 'utf8').then(JSON.parse).catch(() => null), executable = path.join(folder, 'bin', 'java.exe');
+      if (!marker || !fsSync.existsSync(executable)) continue;
+      const java = await inspectJava(executable).catch(() => null);
+      runtimes.push({ id: entry.name, executable, managed: true, major: marker.major, version: java?.version || marker.version || 'Unavailable', arch: java?.arch || 'Unknown', healthy: Boolean(java) });
+    }
+    const custom = [...new Set([...launcher.state.profiles.map(profile => profile.javaPath), launcher.state.settings.defaultJava].filter(value => value && !['auto', 'java', 'java.exe'].includes(value.trim().toLowerCase()) && !runtimes.some(runtime => runtime.executable === value)))];
+    return { automatic: 'Blocklane automatically selects the Java version Minecraft requires and downloads a verified Mojang runtime when it is missing.', defaultJava: launcher.state.settings.defaultJava || 'auto', runtimes, custom: custom.map(executable => ({ executable, profiles: launcher.state.profiles.filter(profile => profile.javaPath === executable).map(profile => profile.name) })) };
+  });
+  handle('java:install', async major => {
+    if (![8, 16, 17, 21, 25].includes(major)) throw new Error('Choose a supported Java version.');
+    if (launcher.working || launcher.child) throw new Error('Wait for the current installation or game to finish.');
+    launcher.busy = true; launcher.controller = new AbortController();
+    try { const executable = await launcher.ensureJava({ javaVersion: { majorVersion: major } }, launcher.controller.signal); return { executable, java: await inspectJava(executable) }; }
+    finally { launcher.busy = false; launcher.controller = null; }
+  });
   handle('java:browse', async () => {
     const result = await dialog.showOpenDialog(window, { title: 'Choose Java executable', properties: ['openFile'], filters: [{ name: 'Java executable', extensions: ['exe'] }] });
     return result.canceled ? null : result.filePaths[0];
@@ -201,6 +224,15 @@ async function start() {
     return result.response === 1 ? launcher.removeVersion(id) : launcher.snapshot();
   });
   handle('folder:open', async () => { const error = await shell.openPath(launcher.root); if (error) throw new Error(error); });
+  handle('folder:runtimes', async () => { const folder = path.join(launcher.root, 'runtimes'); await fs.mkdir(folder, { recursive: true }); const error = await shell.openPath(folder); if (error) throw new Error(error); });
+  handle('logs:list', async () => {
+    const folder = path.join(launcher.root, 'logs'), files = await fs.readdir(folder, { withFileTypes: true }).catch(() => []);
+    const result = await Promise.all(files.filter(item => item.isFile() && /\.log$/i.test(item.name)).map(async item => { const stat = await fs.stat(path.join(folder, item.name)); return { name: item.name, size: stat.size, modifiedAt: stat.mtime.toISOString() }; }));
+    return result.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
+  });
+  handle('logs:read', async name => { if (typeof name !== 'string' || path.basename(name) !== name || !/\.log$/i.test(name)) throw new Error('Invalid log file.'); const file = path.join(launcher.root, 'logs', name), stat = await fs.stat(file); const start = Math.max(0, stat.size - 1024 * 1024); const fileHandle = await fs.open(file, 'r'); try { const buffer = Buffer.alloc(stat.size - start); await fileHandle.read(buffer, 0, buffer.length, start); return { name, truncated: start > 0, text: buffer.toString('utf8') }; } finally { await fileHandle.close(); } });
+  handle('logs:export', async name => { if (typeof name !== 'string' || path.basename(name) !== name || !/\.log$/i.test(name)) throw new Error('Invalid log file.'); const source = path.join(launcher.root, 'logs', name); await fs.access(source); const result = await dialog.showSaveDialog(window, { title: 'Export game log', defaultPath: name, filters: [{ name: 'Log file', extensions: ['log'] }] }); if (result.canceled || !result.filePath) return null; await fs.copyFile(source, result.filePath); return { path: result.filePath }; });
+  handle('folder:logs', async () => { const folder = path.join(launcher.root, 'logs'); await fs.mkdir(folder, { recursive: true }); const error = await shell.openPath(folder); if (error) throw new Error(error); });
   handle('updates:check', () => updater.check(launcher.state.settings.updateChannel));
   handle('updates:open', async url => { const parsed = new URL(String(url)); if (parsed.protocol !== 'https:' || !['github.com', 'objects.githubusercontent.com'].includes(parsed.hostname)) throw new Error('Only GitHub update links can be opened.'); return shell.openExternal(parsed.href); });
   handle('folder:mods', async id => {
@@ -230,7 +262,10 @@ async function start() {
   });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
-  if (!smoke && (process.argv.includes('--minimized') || launcher.state.settings.startMinimized)) window.once('ready-to-show', () => window.minimize());
+  if (!smoke) window.once('ready-to-show', () => {
+    if (process.argv.includes('--minimized') || launcher.state.settings.startMinimized) window.minimize();
+    else if (launcher.state.settings.startMaximized) window.maximize();
+  });
   window.on('close', event => {
     if (!launcher.state.settings.confirmActiveExit || (!launcher.working && !launcher.child)) return;
     event.preventDefault();

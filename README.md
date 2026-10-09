@@ -2,7 +2,7 @@
 
 An independent Minecraft Java Edition launcher for Windows x64. Blocklane installs and switches Minecraft versions with Vanilla, Fabric, Quilt, Forge, NeoForge, or LiteLoader profiles, includes Java in portable builds, and offers Demo plus Microsoft multi-account support.
 
-**Status: early development, v0.4.24.** Microsoft OAuth, Xbox Live authentication, and XSTS authorization have succeeded in a live user test. Minecraft Services currently rejects Blocklane's application with HTTP 403. Application review is required before full-game sign-in can be validated. Demo remains available. Players never need to register an application or enter a client ID.
+**Status: early development, v0.4.60.** Microsoft OAuth, Xbox Live authentication, and XSTS authorization have succeeded in a live user test. Minecraft Services may still reject Blocklane's application until its launcher API registration is approved. Demo and local profiles remain available. Players never need to register an application or enter a client ID.
 
 ![Blocklane interface preview](preview.png)
 
@@ -18,10 +18,10 @@ The preview uses test profile data. It does not show an authenticated game sessi
 - Fabric, Quilt, Forge, NeoForge, and LiteLoader profiles with compatible loader catalogs, pinned builds, installation/repair, and separate mods folders.
 - Modrinth mod manager with loader/version-filtered search, checksum-verified installs, required dependencies, enable/disable, updates, removal, and local JAR visibility.
 - Modrinth modpack browser plus local Modrinth `.mrpack`, Prism Launcher, MultiMC, and self-contained CurseForge ZIP imports with automatic profiles, checksum verification, staged installation, updates, rollback, and preservation of worlds and personal settings.
-- Separate custom-pack projects with their own creation wizard and standard `.mrpack` export, excluding worlds and private player data.
+- Playable custom-pack projects with an integrated Modrinth browser, local JAR imports, isolated play profiles, world-safe pack refreshes, and standard `.mrpack` export.
 - Multi-file local imports for mods, shader packs, resource packs, and supported `.mrpack`/ZIP modpack archives.
 - A Shaders tab that appears for profiles with Iris (Fabric/Quilt) or Oculus (Forge/NeoForge), with compatible Modrinth shader packs filtered to the profile Minecraft version and stored in its own `shaderpacks` folder.
-- Bundled Java 25 in portable Windows builds; automatic installation of matching Mojang runtimes for other versions.
+- Interactive Java manager with automatic or manual runtime selection, custom `java.exe` support, installation progress, and Mojang Java 8, 16, 17, 21, and 25 runtimes.
 - Automatic GitHub release checking at startup and a manual header check, with a direct link to the published installer when a newer version is available.
 - Explicit Demo mode; Microsoft account switching/removal, entitlement checks, and encrypted local refresh-token storage.
 - Electron sandboxing, context isolation, a restricted renderer bridge, and token redaction in game logs.
@@ -56,9 +56,9 @@ npm run bundle-java
 npm run package -- --release
 ```
 
-The resulting folder is `dist/Blocklane-0.4.24-win32-x64/`; open `Blocklane.exe` and keep its supporting files beside it. Packaging includes Mojang's Java runtime and its license notices. The launcher is currently unsigned.
+The resulting folder is `dist/Blocklane-0.4.60-win32-x64/`; open `Blocklane.exe` and keep its supporting files beside it. Packaging includes Mojang's Java runtime and its license notices.
 
-To make the Windows installer, run `npm run installer`. This uses electron-builder's NSIS target to produce `dist/nsis/Blocklane-0.4.24-Setup.exe`, which provides the standard Windows installation wizard, creates shortcuts, and includes the launcher plus its bundled Java runtime.
+To make the Windows installer, run `npm run installer`. This uses electron-builder's NSIS target to produce `dist/nsis/Blocklane-0.4.60-Setup.exe`, which provides the standard Windows installation wizard, creates shortcuts, and includes the launcher plus its bundled Java runtime.
 
 Blocklane's public application ID is embedded in `src/app-config.json`. Developers can override it with `BLOCKLANE_MICROSOFT_CLIENT_ID` at build time. A public desktop client does not use a client secret. The release packaging check verifies that an ID is configured; it does not verify service approval.
 

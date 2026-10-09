@@ -1,0 +1,65 @@
+/* Popups with their own content regions keep the shell fixed and scroll only the useful content. */
+#custom-pack-mods-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  width: min(1000px, calc(100vw - 64px));
+  height: min(760px, calc(100vh - 64px));
+  max-height: none;
+  overflow: hidden;
+}
+#custom-pack-mods-dialog > .modal-heading,
+#custom-pack-mods-dialog > .mod-search,
+#custom-pack-mods-dialog > .form-error,
+#custom-pack-mods-dialog > .modal-footer { flex: 0 0 auto; }
+#custom-pack-mods-dialog > .mod-search { grid-template-columns: minmax(0, 1fr) auto auto; }
+#custom-pack-mods-dialog .custom-pack-mod-columns { flex: 1 1 auto; min-height: 0; max-height: none; overflow: hidden; }
+#custom-pack-mods-dialog .custom-pack-mod-columns > section { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+#custom-pack-mods-dialog .custom-pack-mod-columns .section-heading { flex: 0 0 auto; }
+#custom-pack-mods-dialog .custom-pack-mod-columns .mod-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 5px; }
+
+#storage-details-dialog[open],
+#worlds-dialog[open],
+#restore-dialog[open],
+#mod-details-dialog[open],
+#modpack-details-dialog[open],
+#screenshot-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-height: calc(100vh - 64px);
+}
+#restore-dialog > form { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+#storage-details-list,
+#worlds-list,
+#restore-worlds,
+#mod-details-content,
+#modpack-details-content,
+#screenshot-stage { flex: 1 1 auto; min-height: 0; overflow-y: auto; max-height: none; }
+#storage-details-dialog > .modal-heading,
+#worlds-dialog > .modal-heading,
+#restore-dialog .modal-heading,
+#mod-details-dialog > .modal-heading,
+#modpack-details-dialog > .modal-heading,
+#screenshot-dialog > .modal-heading,
+#storage-details-dialog > .modal-footer,
+#worlds-dialog > .modal-footer,
+#restore-dialog .modal-footer,
+#mod-details-dialog > .modal-footer,
+#modpack-details-dialog > .modal-footer,
+#screenshot-dialog > .modal-footer { flex: 0 0 auto; }
+
+@media (max-width: 850px) {
+  #custom-pack-mods-dialog[open] { width: calc(100vw - 28px); height: calc(100vh - 28px); padding: 20px; }
+  #custom-pack-mods-dialog .custom-pack-mod-columns { overflow-y: auto; }
+  #custom-pack-mods-dialog .custom-pack-mod-columns > section { min-height: 260px; overflow: visible; }
+  #custom-pack-mods-dialog .custom-pack-mod-columns .mod-list { overflow: visible; }
+  #custom-pack-mods-dialog > .mod-search { grid-template-columns: 1fr; }
+}
+
+/* Custom-pack cards keep identity text readable and put actions on their own row. */
+.custom-pack-card { display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: start; }
+.custom-pack-card .mod-card-copy { min-width: 0; }
+.custom-pack-card .mod-card-copy strong,
+.custom-pack-card .mod-card-copy small,
+.custom-pack-card .mod-card-copy p { overflow-wrap: break-word; word-break: normal; }
+.custom-pack-card .mod-actions { grid-column: 1 / -1; justify-content: flex-start; width: 100%; padding-top: 12px; margin-top: 2px; border-top: 1px solid var(--line); }

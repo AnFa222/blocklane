@@ -1,0 +1,30 @@
+.java-control-card {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(135deg, #1d2d1c, #121a14);
+  border: 1px solid #4b6740;
+  border-radius: 9px;
+  padding: 17px;
+  margin: 18px 0;
+}
+.java-control-card strong { font-size: 14px; }
+.java-control-card p { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.java-mode-button { display: flex; align-items: center; gap: 9px; border: 1px solid var(--line); background: #111713; border-radius: 999px; padding: 8px 12px; }
+.java-mode-button span { width: 34px; height: 18px; border-radius: 999px; background: #3c4740; position: relative; }
+.java-mode-button span::after { content: ''; position: absolute; width: 12px; height: 12px; left: 3px; top: 3px; border-radius: 50%; background: #b5beb6; transition: .15s; }
+.java-mode-button.active span { background: #4f733c; }
+.java-mode-button.active span::after { left: 19px; background: var(--green); }
+.java-install-bar { display: flex; gap: 10px; align-items: end; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 8px; }
+.java-install-bar > div { display: grid; gap: 7px; flex: 1; }
+.java-install-bar label { font-size: 11px; color: var(--muted); font-weight: 700; letter-spacing: .5px; }
+.java-runtime-card.selectable { transition: border-color .15s, background .15s; }
+.java-runtime-card.selectable.selected { border-color: #5c8547; background: #1e2b1d; }
+.java-progress-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 16px; align-items: center; margin: 12px 0 18px; padding: 16px; border: 1px solid #40583a; border-radius: 9px; background: #141d16; }
+.java-progress-copy > div { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.java-progress-copy strong { color: var(--green); }
+.java-progress-copy small { display: block; margin-top: 5px; color: var(--muted); }
+.java-progress-card progress { grid-column: 1; width: 100%; height: 10px; accent-color: var(--green); }
+.java-progress-card > button { grid-column: 2; grid-row: 1 / span 2; }
+@media (max-width: 780px) { .java-install-bar { align-items: stretch; flex-direction: column; } }

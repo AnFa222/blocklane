@@ -18,8 +18,8 @@ contextBridge.exposeInMainWorld('launcher', {
   importContent: (profileId, kind) => invoke('content:import', profileId, kind),
   searchModpacks: (query, offset = 0) => invoke('modpacks:search', query, offset), modpackDetails: projectId => invoke('modpacks:details', projectId),
   listModpacks: () => invoke('modpacks:list'), installModpack: projectId => invoke('modpacks:install', projectId), importModpack: () => invoke('modpacks:import'), updateModpack: profileId => invoke('modpacks:update', profileId), removeModpack: profileId => invoke('modpacks:remove', profileId),
-  listCustomPacks: () => invoke('custom-packs:list'), createCustomPack: input => invoke('custom-packs:create', input), deleteCustomPack: id => invoke('custom-packs:delete', id), exportCustomPack: id => invoke('custom-packs:export', id), openCustomPackFolder: id => invoke('custom-packs:folder', id),
-  searchCustomPackMods: (id, query, offset = 0) => invoke('custom-packs:mods-search', id, query, offset), listCustomPackMods: id => invoke('custom-packs:mods-list', id), installCustomPackMod: (id, projectId) => invoke('custom-packs:mods-install', id, projectId), removeCustomPackMod: (id, projectId) => invoke('custom-packs:mods-remove', id, projectId),
+  listCustomPacks: () => invoke('custom-packs:list'), createCustomPack: input => invoke('custom-packs:create', input), prepareCustomPack: id => invoke('custom-packs:prepare-profile', id), deleteCustomPack: id => invoke('custom-packs:delete', id), exportCustomPack: id => invoke('custom-packs:export', id), openCustomPackFolder: id => invoke('custom-packs:folder', id),
+  searchCustomPackMods: (id, query, offset = 0) => invoke('custom-packs:mods-search', id, query, offset), listCustomPackMods: id => invoke('custom-packs:mods-list', id), installCustomPackMod: (id, projectId) => invoke('custom-packs:mods-install', id, projectId), importCustomPackMods: id => invoke('custom-packs:mods-import', id), removeCustomPackMod: (id, projectId) => invoke('custom-packs:mods-remove', id, projectId),
   shaderStatus: profileId => invoke('shaders:status', profileId), searchShaders: (profileId, query, offset = 0) => invoke('shaders:search', profileId, query, offset),
   listShaders: profileId => invoke('shaders:list', profileId), installShader: (profileId, projectId) => invoke('shaders:install', profileId, projectId),
   enableShader: (profileId, projectId, enabled) => invoke('shaders:enable', profileId, projectId, enabled), removeShader: (profileId, projectId) => invoke('shaders:remove', profileId, projectId),
@@ -32,8 +32,8 @@ contextBridge.exposeInMainWorld('launcher', {
   createLocalAccount: name => invoke('accounts:local', name),
   accountSkin: id => invoke('accounts:skin', id), listSkins: () => invoke('skins:list'), importSkin: (name, variant) => invoke('skins:import', name, variant),
   renameSkin: (id, name) => invoke('skins:rename', id, name), deleteSkin: id => invoke('skins:delete', id), applySkin: (accountId, skinId) => invoke('skins:apply', accountId, skinId),
-  beginLogin: () => invoke('accounts:begin'), cancelLogin: () => invoke('accounts:cancel'), openLogin: () => invoke('accounts:browser'), copyDeviceCode: code => invoke('clipboard:device-code', code),
-  inspectJava: executable => invoke('java:inspect', executable), browseJava: () => invoke('java:browse'), openFolder: () => invoke('folder:open'),
+  beginLogin: () => invoke('accounts:begin'), cancelLogin: () => invoke('accounts:cancel'), openLogin: () => invoke('accounts:browser'), copyDeviceCode: code => invoke('clipboard:device-code', code), copyText: text => invoke('clipboard:text', text),
+  inspectJava: executable => invoke('java:inspect', executable), javaManager: () => invoke('java:manager'), installJava: major => invoke('java:install', major), browseJava: () => invoke('java:browse'), openFolder: () => invoke('folder:open'), openRuntimes: () => invoke('folder:runtimes'), listLogs: () => invoke('logs:list'), readLog: name => invoke('logs:read', name), exportLog: name => invoke('logs:export', name), openLogs: () => invoke('folder:logs'),
   checkUpdates: () => invoke('updates:check'), openUpdate: url => invoke('updates:open', url),
   on: (event, callback) => {
     if (!['progress', 'content-progress', 'log', 'game-start', 'game-exit', 'accounts-changed', 'auth-error', 'quick-play-error'].includes(event)) return;

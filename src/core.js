@@ -25,7 +25,7 @@ const contentImport = require('./content-import');
 const LOCAL_SKIN_MOD = 'idMHQ4n2';
 const SETTINGS_DEFAULTS = Object.freeze({
   loggingEnabled: true, launcherDiagnostics: true, autoCheckUpdates: true, launcherVisibility: 'keep', defaultMemory: 4,
-  startWithWindows: false, startMinimized: false, minimizeToTray: false, confirmActiveExit: true, rememberPage: true, compactSidebar: false, uiScale: 100, theme: 'dark', reducedMotion: false,
+  startWithWindows: false, startMinimized: false, startMaximized: false, minimizeToTray: false, confirmActiveExit: true, rememberPage: true, compactSidebar: false, uiScale: 100, theme: 'dark', reducedMotion: false,
   defaultJava: 'auto', defaultWidth: 1280, defaultHeight: 720, defaultFullscreen: true, defaultJvmArgs: '', defaultGameArgs: '', defaultLoader: 'vanilla', selectLastProfile: true, requireAccountChoice: false,
   downloadConcurrency: 4, downloadLimitMbps: 0, downloadRetries: 3, downloadTimeout: 30, verifyDownloads: true, pauseDownloadsWhilePlaying: false, downloadNotifications: true,
   cacheLimitGb: 10, autoCleanCache: false, removeUnusedLibraries: false, storageWarningGb: 5,
@@ -605,7 +605,7 @@ class Launcher {
   async resourcepackRemove(profileId, projectId) { if (this.working || this.child) throw new Error('Wait for the current operation or game to finish.'); const p = this.modProfile(profileId); return resourcepacks.remove(p, this.resourcepacksDir(p), projectId, this.loaderIO()); }
   async modpackSearch(query = '', offset = 0) { return modpacks.search(query, offset, this.loaderIO()); }
   async modpackDetails(projectId) { return modpacks.project(projectId, this.loaderIO()); }
-  async modpackList() { return this.state.profiles.filter(profile => profile.modpack).map(profile => ({ profileId: profile.id, profileName: profile.name, version: profile.version, loader: profile.loader, ...profile.modpack })); }
+  async modpackList() { return this.state.profiles.filter(profile => profile.modpack && profile.modpack.source !== 'custom').map(profile => ({ profileId: profile.id, profileName: profile.name, version: profile.version, loader: profile.loader, ...profile.modpack })); }
   async modpackInstall(projectId, profileId = null) {
     projectId = modpacks.id(projectId); if (profileId) validId(profileId);
     return this.runContentTask('modpack', profileId || 'new', projectId, (signal, report) => this.withContentLock('modpacks', async () => {
@@ -658,6 +658,26 @@ class Launcher {
     if (pack.loader !== 'vanilla' && !(await this.loaderVersions(pack.loader, pack.version)).some(item => item.version === pack.loaderVersion)) throw new Error('Choose a compatible loader version.');
     return customPacks.save(this.root, pack);
   }
+  async customPackPrepareProfile(id) {
+    if (this.child || this.working) throw new Error('Wait for the current operation to finish.');
+    const pack = await customPacks.get(this.root, validId(id)), source = path.join(customPacks.root(this.root, pack.id), 'instance');
+    const files = [], pending = [''];
+    while (pending.length) {
+      const relativeRoot = pending.pop(), folder = path.join(source, ...relativeRoot.split('/').filter(Boolean));
+      for (const item of await fs.readdir(folder, { withFileTypes: true }).catch(() => [])) {
+        const relative = [relativeRoot, item.name].filter(Boolean).join('/');
+        if (item.isDirectory()) pending.push(relative); else if (item.isFile()) files.push(modpacks.safePackPath(relative));
+      }
+    }
+    const existing = this.state.profiles.find(profile => profile.customPackId === pack.id), profile = existing || validateProfile({ name: pack.name, version: pack.version, memory: this.state.settings.defaultMemory, javaPath: this.state.settings.defaultJava, javaArgs: [], gameArgs: [], loader: pack.loader, loaderVersion: pack.loaderVersion });
+    profile.name = pack.name; profile.version = pack.version; profile.loader = pack.loader; profile.loaderVersion = pack.loaderVersion; profile.customPackId = pack.id;
+    profile.modpack = { source: 'custom', title: pack.name, versionName: pack.versionId, format: 'custom', installedAt: new Date().toISOString() };
+    const instance = path.join(this.root, 'instances', profile.id), prior = await modpacks.readManifest(instance, this.loaderIO()), oldManaged = prior?.pack?.source === 'custom' && prior.pack.customPackId === pack.id ? prior.managedFiles || [] : [];
+    await fs.mkdir(instance, { recursive: true }); await modpacks.applyStaging(instance, source, oldManaged, files, Boolean(existing));
+    await modpacks.writeManifest(instance, { schema: 1, pack: { ...profile.modpack, customPackId: pack.id }, managedFiles: files }, this.loaderIO());
+    if (!existing) this.state.profiles.push(profile); this.state.selectedProfile = profile.id; await this.persist();
+    return { state: await this.snapshot(), profileId: profile.id, created: !existing };
+  }
   async customPackDelete(id) { if (this.child || this.working) throw new Error('Wait for the current operation to finish.'); await customPacks.remove(this.root, validId(id)); return this.customPackList(); }
   async customPackExport(id, destination) {
     if (this.child || this.working) throw new Error('Wait for the current operation to finish.'); const pack = await customPacks.get(this.root, validId(id));
@@ -669,6 +689,7 @@ class Launcher {
     const pack = await customPacks.get(this.root, validId(id)), dir = path.join(customPacks.root(this.root, pack.id), 'instance', 'mods');
     return this.runContentTask('custom-mod', pack.id, projectId, async (signal, report) => this.withContentLock(`mods:${dir}`, async () => { await mods.installProject(pack, projectId, dir, this.loaderIO(), signal, report); return this.customPackModList(pack.id); }));
   }
+  async customPackModImport(id, files) { if (this.working || this.child) throw new Error('Wait for the current operation to finish.'); const pack = await customPacks.get(this.root, validId(id)), instance = path.join(customPacks.root(this.root, pack.id), 'instance'), imported = await contentImport.importFiles(instance, 'mod', files); return { imported, mods: await this.customPackModList(pack.id) }; }
   async customPackModRemove(id, projectId) { if (this.working || this.child) throw new Error('Wait for the current operation to finish.'); const pack = await customPacks.get(this.root, validId(id)), dir = path.join(customPacks.root(this.root, pack.id), 'instance', 'mods'); return mods.remove(pack, dir, projectId, this.loaderIO()); }
   async prepareLocalSkin(profile, identity, gameDir, signal) {
     if (!identity.local) return { active: false, supported: true };
@@ -777,7 +798,8 @@ class Launcher {
       this.progress('Preparing account', 0, 1);
       if (!this.authenticate && accountId !== 'demo') throw new Error('Microsoft sign-in is not configured.');
       const identity = launchIdentity(this.authenticate ? await this.authenticate(accountId, this.controller.signal) : DEMO);
-      const javaPath = managedJava(p.javaPath) ? await this.ensureJava(meta, this.controller.signal) : p.javaPath;
+      const configuredJava = managedJava(p.javaPath) && !managedJava(this.state.settings.defaultJava) ? this.state.settings.defaultJava : p.javaPath;
+      const javaPath = managedJava(configuredJava) ? await this.ensureJava(meta, this.controller.signal) : configuredJava;
       this.controller.signal.throwIfAborted();
       const java = await inspectJava(javaPath);
       const required = meta.javaVersion?.majorVersion || 8;
@@ -836,4 +858,3 @@ class Launcher {
 }
 
 module.exports = { Launcher, allowed, expandArgs, safePath, validId, validateProfile, libraryPlan, legacyArguments, normalizeVersionMetadata, enforceExclusiveFullscreen, materializeAssets, inspectJava, download, pool, atomicJson, readJson, trustedUrl, extractNatives, host, hashFile, remoteJson, launchIdentity, redactStream };
-
